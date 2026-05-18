@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showResend, setShowResend] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
 
   function validateDomain(e: string) {
     if (!e.endsWith('@' + ALLOWED_DOMAIN)) {
@@ -28,6 +30,7 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
     setMessage('')
+    setShowResend(false)
 
     if (!validateDomain(email)) return
 
@@ -36,17 +39,40 @@ export default function LoginPage() {
       const supabase = createClient()
       if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) { setError(error.message); return }
+        if (error) {
+          setError(error.message)
+          if (error.message.toLowerCase().includes('email not confirmed') ||
+              error.message.toLowerCase().includes('not verified')) {
+            setShowResend(true)
+          }
+          return
+        }
         router.push('/')
         router.refresh()
       } else {
         const { error } = await supabase.auth.signUp({ email, password })
         if (error) { setError(error.message); return }
-        setMessage('Check your email to confirm your account, then sign in.')
+        setMessage('Check your email to confirm your account.')
+        setShowResend(true)
         setMode('login')
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleResend() {
+    if (!email || !validateDomain(email)) return
+    setResendLoading(true)
+    setMessage('')
+    setError('')
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.resend({ type: 'signup', email })
+      if (error) { setError(error.message); return }
+      setMessage(`Verification email resent to ${email}.`)
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -98,7 +124,7 @@ export default function LoginPage() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); setError('') }}
+                onChange={(e) => { setEmail(e.target.value); setError(''); setShowResend(false) }}
                 placeholder={`you@${ALLOWED_DOMAIN}`}
                 required
                 style={{
@@ -150,6 +176,27 @@ export default function LoginPage() {
               </div>
             )}
 
+            {showResend && (
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendLoading}
+                style={{
+                  padding: '10px 16px',
+                  background: '#FFB80022',
+                  border: '1px solid #FFB80044',
+                  borderRadius: 8,
+                  color: resendLoading ? '#5A6685' : '#FFB800',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: resendLoading ? 'not-allowed' : 'pointer',
+                  textAlign: 'left' as const,
+                }}
+              >
+                {resendLoading ? 'Sending...' : '↻  Resend verification email'}
+              </button>
+            )}
+
             <button
               type="submit"
               disabled={loading}
@@ -172,13 +219,13 @@ export default function LoginPage() {
           <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: '#5A6685' }}>
             {mode === 'login' ? (
               <>Don&apos;t have an account?{' '}
-                <button onClick={() => { setMode('signup'); setError(''); setMessage('') }} style={{ color: '#00D4FF', fontWeight: 600, textDecoration: 'underline' }}>
+                <button onClick={() => { setMode('signup'); setError(''); setMessage(''); setShowResend(false) }} style={{ color: '#00D4FF', fontWeight: 600, textDecoration: 'underline' }}>
                   Sign up
                 </button>
               </>
             ) : (
               <>Already have an account?{' '}
-                <button onClick={() => { setMode('login'); setError(''); setMessage('') }} style={{ color: '#00D4FF', fontWeight: 600, textDecoration: 'underline' }}>
+                <button onClick={() => { setMode('login'); setError(''); setMessage(''); setShowResend(false) }} style={{ color: '#00D4FF', fontWeight: 600, textDecoration: 'underline' }}>
                   Sign in
                 </button>
               </>
