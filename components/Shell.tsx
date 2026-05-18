@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target } from '@/lib/types'
+import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target, ClosedDeal } from '@/lib/types'
 import { fmtMoney } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { LiveTracker } from './LiveTracker'
@@ -15,15 +15,31 @@ interface ShellProps {
   activity: ActivityDaily[]
   feed: ActivityLogEntry[]
   targets: Target[]
+  closedDeals: ClosedDeal[]
 }
 
 type Tab = 'live' | 'team'
 
-export function Shell({ reps, clients, activity, feed, targets }: ShellProps) {
+export function Shell({ reps, clients, activity, feed, targets, closedDeals: initialClosedDeals }: ShellProps) {
   const [tab, setTab] = useState<Tab>('live')
+  const [closedDeals, setClosedDeals] = useState<ClosedDeal[]>(initialClosedDeals)
   const router = useRouter()
 
-  const mrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
+  const clientsMrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
+  const closedDealsMrr = closedDeals.reduce((s, d) => s + d.monthly_price, 0)
+  const mrr = clientsMrr + closedDealsMrr
+
+  function handleDealClosed(deal: { rep_id: string; company_name: string; monthly_price: number; closed_date: string }) {
+    const newDeal: ClosedDeal = {
+      id: crypto.randomUUID(),
+      rep_id: deal.rep_id,
+      company_name: deal.company_name,
+      monthly_price: deal.monthly_price,
+      closed_date: deal.closed_date,
+      created_at: new Date().toISOString(),
+    }
+    setClosedDeals((prev) => [newDeal, ...prev])
+  }
 
   async function signOut() {
     const supabase = createClient()
@@ -31,7 +47,7 @@ export function Shell({ reps, clients, activity, feed, targets }: ShellProps) {
     router.push('/login')
     router.refresh()
   }
-  const activeClientCount = clients.filter((c) => c.status === 'active').length
+  const activeClientCount = clients.filter((c) => c.status === 'active').length + closedDeals.length
 
   const dailyTarget = targets.find((t) => t.period === 'daily') ?? null
 
@@ -117,11 +133,14 @@ export function Shell({ reps, clients, activity, feed, targets }: ShellProps) {
             reps={reps}
             initialFeed={feed}
             dailyTarget={dailyTarget}
+            onDealClosed={handleDealClosed}
           />
         )}
         {tab === 'team' && (
           <TeamPerformance
             reps={reps}
+            clients={clients}
+            closedDeals={closedDeals}
             activity={activity}
             targets={targets}
             initialMrr={mrr}

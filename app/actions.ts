@@ -1,0 +1,87 @@
+'use server'
+
+import { db } from '@/db'
+import { activity_log_entries, closed_deals } from '@/db/schema'
+import { eq, and, gte, desc } from 'drizzle-orm'
+
+export async function getWeeklyCountsAction(weekStartISO: string) {
+  const rows = await db
+    .select({ rep_id: activity_log_entries.rep_id, metric_key: activity_log_entries.metric_key })
+    .from(activity_log_entries)
+    .where(gte(activity_log_entries.logged_at, weekStartISO + 'T00:00:00+00'))
+
+  const counts: Record<string, Record<string, number>> = {}
+  rows.forEach(({ rep_id, metric_key }) => {
+    if (!counts[rep_id]) counts[rep_id] = {}
+    counts[rep_id][metric_key] = (counts[rep_id][metric_key] ?? 0) + 1
+  })
+  return counts
+}
+
+export async function logActivityAction(
+  repId: string,
+  metricKey: string,
+  label: string,
+  icon: string,
+  color: string,
+) {
+  const [entry] = await db
+    .insert(activity_log_entries)
+    .values({ rep_id: repId, metric_key: metricKey, label, icon, color })
+    .returning()
+  return entry
+}
+
+export async function decrementActivityAction(
+  repId: string,
+  metricKey: string,
+  weekStartISO: string,
+) {
+  const rows = await db
+    .select({ id: activity_log_entries.id })
+    .from(activity_log_entries)
+    .where(
+      and(
+        eq(activity_log_entries.rep_id, repId),
+        eq(activity_log_entries.metric_key, metricKey),
+        gte(activity_log_entries.logged_at, weekStartISO + 'T00:00:00+00'),
+      )
+    )
+    .orderBy(desc(activity_log_entries.logged_at))
+    .limit(1)
+
+  if (!rows.length) return { deleted: false, id: null }
+
+  await db.delete(activity_log_entries).where(eq(activity_log_entries.id, rows[0].id))
+  return { deleted: true, id: rows[0].id }
+}
+
+export async function logClosedDealAction(data: {
+  repId: string
+  companyName: string
+  monthlyPrice: number
+  closedDate: string
+}) {
+  const [deal] = await db
+    .insert(closed_deals)
+    .values({
+      rep_id: data.repId,
+      company_name: data.companyName,
+      monthly_price: data.monthlyPrice,
+      closed_date: data.closedDate,
+    })
+    .returning()
+
+  const [entry] = await db
+    .insert(activity_log_entries)
+    .values({
+      rep_id: data.repId,
+      metric_key: 'closed',
+      label: `Closed ${data.companyName}`,
+      icon: 'trophy',
+      color: '#00E5A0',
+    })
+    .returning()
+
+  return { deal, entry }
+}

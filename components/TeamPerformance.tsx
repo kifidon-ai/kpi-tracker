@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { Rep, ActivityDaily, Target } from '@/lib/types'
+import type { Rep, Client, ClosedDeal, ActivityDaily, Target } from '@/lib/types'
 import { aggregate, inRange, fmtMoney, fmtNum, pct } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI, TargetBar } from './ui/primitives'
 import { LineChart, FunnelBar, Ring, Sparkline, Speedometer } from './charts'
 
 interface TeamPerformanceProps {
   reps: Rep[]
+  clients: Client[]
+  closedDeals: ClosedDeal[]
   activity: ActivityDaily[]
   targets: Target[]
   initialMrr: number
@@ -16,7 +18,7 @@ interface TeamPerformanceProps {
 
 type Range = 'day' | 'week' | 'month' | 'all'
 
-export function TeamPerformance({ reps, activity, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+export function TeamPerformance({ reps, clients, closedDeals, activity, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
   const [range, setRange] = useState<Range>('week')
   const [trendGranularity, setTrendGranularity] = useState<'week' | 'day'>('week')
 
@@ -68,15 +70,22 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
   const rangeLabel = range === 'day' ? 'today' : range === 'week' ? 'this week' : range === 'month' ? 'this month' : 'all time'
   const arr = initialMrr * 12
 
-  // 7-week MRR sparkline (static upward trend for now — real data would come from a MRR history table)
-  const mrrSparkData = [initialMrr * 0.29, initialMrr * 0.41, initialMrr * 0.5, initialMrr * 0.63, initialMrr * 0.77, initialMrr * 0.9, initialMrr]
+  const pipelineStages = [
+    { label: 'Dials',     value: totals.dials,  color: '#00D4FF' },
+    { label: 'Conv',      value: totals.conv,   color: '#8B5CF6' },
+    { label: 'Discovery', value: totals.disc,   color: '#FFB800' },
+    { label: 'Demo',      value: totals.demo,   color: '#FF3D9A' },
+    { label: 'Closed',    value: totals.closed, color: '#00E5A0' },
+  ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 4px 0' }}>
+    <div className="flex flex-col gap-[18px]">
+
+      {/* Header */}
+      <div className="flex justify-between items-center px-1 pt-1">
         <div>
-          <div style={{ fontSize: 11, color: '#5A6685', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>Historical overview</div>
-          <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>Team performance · {rangeLabel}</div>
+          <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">Historical overview</div>
+          <div className="text-lg font-bold mt-1">Team performance · {rangeLabel}</div>
         </div>
         <Segmented
           value={range}
@@ -85,41 +94,77 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
         />
       </div>
 
-      {/* Hero row: KPI cards left, speedometer + ARR right */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, alignItems: 'start' }}>
-        {/* Left: 3×2 KPI grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-          <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
-          <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
-          <Card><KPI label="Discovery Booked" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
-          <Card><KPI label="Demo Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
-          <Card><KPI label="Closed Won" value={totals.closed} target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(totals.closed, prevTotals.closed)} /></Card>
-          <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
+      {/* Hero row: KPI grid + pipeline left, speedometer + ARR right */}
+      <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
+
+        {/* Left: 3×2 KPI grid + conversion pipeline */}
+        <div className="flex flex-col gap-3.5">
+          <div className="grid grid-cols-3 gap-3.5">
+            <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
+            <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
+            <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
+            <Card><KPI label="Discovery" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
+            <Card><KPI label="Demo" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
+            <Card><KPI label="Closed" value={totals.closed} target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(totals.closed, prevTotals.closed)} /></Card>
+          </div>
+
+          {/* Conversion pipeline */}
+          <Card>
+            <SectionTitle>Conversion pipeline · {rangeLabel}</SectionTitle>
+            <div className="flex items-center pt-2">
+              {pipelineStages.map((s, i) => (
+                <div key={s.label} className={`flex items-center ${i < pipelineStages.length - 1 ? 'flex-1' : 'flex-none'}`}>
+                  <div className="flex flex-col items-center gap-1.5 shrink-0">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: s.color }}>{s.label}</div>
+                    <div className="mono text-[36px] font-extrabold text-white leading-none">{s.value}</div>
+                    <div className="w-9 h-[3px] rounded-sm opacity-70" style={{ background: s.color }} />
+                  </div>
+                  {i < pipelineStages.length - 1 && (() => {
+                    const rate = s.value ? (pipelineStages[i + 1].value / s.value * 100) : 0
+                    return (
+                      <div className="flex-1 flex flex-col items-center gap-1 px-1.5 min-w-12">
+                        <div className={`mono text-[11px] font-bold ${rate > 0 ? 'text-ink-2' : 'text-[#3A4460]'}`}>
+                          {rate.toFixed(0)}%
+                        </div>
+                        <div className="flex items-center w-full">
+                          <div className="flex-1 h-px bg-[#2A3350]" />
+                          <span className="text-[#2A3350] text-[10px] leading-none">▶</span>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
 
         {/* Right: Speedometer + ARR */}
-        <Card style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 20 }}>
-          <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, alignSelf: 'flex-start', marginBottom: 4 }}>Active Clients</div>
+        <Card className="flex flex-col items-center h-full justify-between" style={{ padding: 20 }}>
+          <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold self-start mb-1">Active Clients</div>
           <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
-          <div style={{ width: '100%', borderTop: '1px solid #1E2538', marginTop: 16, paddingTop: 16 }}>
-            <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Annual Recurring Revenue</div>
-            <div className="mono" style={{ fontSize: 34, fontWeight: 800, color: '#fff', letterSpacing: -0.5, lineHeight: 1 }}>{fmtMoney(arr)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          <div className="w-full border-t border-line mt-4 pt-4">
+            <div className="mx-auto w-1/2 flex flex-col items-center justify-center border-b border-line mb-2">
+            <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold mb-1.5">Annual Recurring Revenue</div>
+            <div className="mono text-[34px] font-extrabold text-white tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
+            <div className="flex items-center gap-2.5 mt-2">
               <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
+            </div>
+              
             </div>
           </div>
         </Card>
       </div>
 
       {/* Trend + Funnel */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14 }}>
+      <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
         <Card>
           <SectionTitle right={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#8B95B2' }}>
+            <div className="flex items-center gap-4">
+              <div className="flex gap-3.5 text-[11px] text-ink-2">
                 {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FF3D9A', l: 'Demos' }].map((x) => (
-                  <span key={x.l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: x.c }} />{x.l}
+                  <span key={x.l} className="inline-flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full" style={{ background: x.c }} />{x.l}
                   </span>
                 ))}
               </div>
@@ -139,32 +184,32 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
             ]}
             height={240}
           />
-          <div style={{ fontSize: 10, color: '#5A6685', marginTop: 8, fontFamily: 'JetBrains Mono, monospace' }}>* demos plotted at 8× scale for trend visibility</div>
+          <div className="mono text-[10px] text-ink-3 mt-2">* demos plotted at 8× scale for trend visibility</div>
         </Card>
 
-        <Card>
+        <Card className="flex flex-col">
           <SectionTitle>Funnel</SectionTitle>
           <FunnelBar stages={[
             { label: 'Dials',         value: totals.dials,  color: '#00D4FF' },
             { label: 'Conversations', value: totals.conv,   color: '#8B5CF6' },
             { label: 'Discovery',     value: totals.disc,   color: '#FFB800' },
-            { label: 'Demo booked',   value: totals.demo,   color: '#FF3D9A' },
-            { label: 'Closed won',    value: totals.closed, color: '#00E5A0' },
+            { label: 'Demo ',   value: totals.demo,   color: '#FF3D9A' },
+            { label: 'Won',    value: totals.closed, color: '#00E5A0' },
           ]} />
         </Card>
       </div>
 
       {/* Rep breakdown table */}
       <Card padding={0}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1E2538' }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Per-rep breakdown · {rangeLabel}</div>
+        <div className="px-5 py-4 border-b border-line">
+          <div className="text-[13px] font-semibold">Per-rep breakdown · {rangeLabel}</div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
             <thead>
-              <tr style={{ color: '#5A6685', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              <tr className="text-ink-3 text-[10.5px] uppercase tracking-[0.5px]">
                 {['Rep', 'Dials', 'Conv', 'VM', 'Disc', 'Demo', 'Closed', 'D→C', 'C→Di', 'Di→De', 'De→Cl'].map((h) => (
-                  <th key={h} style={{ textAlign: h === 'Rep' ? 'left' : 'right', padding: '12px 14px', fontWeight: 600, borderBottom: '1px solid #1E2538' }}>{h}</th>
+                  <th key={h} className={`${h === 'Rep' ? 'text-left' : 'text-right'} px-3.5 py-3 font-semibold border-b border-line`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -173,18 +218,21 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
                 const rows = filtered.filter((r) => r.rep_id === rep.id)
                 const a = aggregate(rows)
                 return (
-                  <tr key={rep.id} style={{ borderBottom: '1px solid #1A1F30' }}>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: `linear-gradient(135deg, ${rep.color}, ${rep.color}99)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#0A0E1A' }}>{rep.initials}</div>
-                        <span style={{ fontWeight: 600 }}>{rep.name}</span>
+                  <tr key={rep.id} className="border-b border-[#1A1F30]">
+                    <td className="px-3.5 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="w-[26px] h-[26px] rounded-full flex items-center justify-center text-[9px] font-bold text-bg-1"
+                          style={{ background: `linear-gradient(135deg, ${rep.color}, ${rep.color}99)` }}
+                        >{rep.initials}</div>
+                        <span className="font-semibold">{rep.name}</span>
                       </div>
                     </td>
                     {(['dials', 'conv', 'vm', 'disc', 'demo', 'closed'] as const).map((k) => (
-                      <td key={k} className="mono" style={{ padding: '12px 14px', textAlign: 'right', color: k === 'closed' ? '#00E5A0' : '#D8DEEF', fontWeight: 600 }}>{a[k]}</td>
+                      <td key={k} className={`mono px-3.5 py-3 text-right font-semibold ${k === 'closed' ? 'text-mint' : 'text-ink-1'}`}>{a[k]}</td>
                     ))}
                     {[pct(a.conv, a.dials), pct(a.disc, a.conv), pct(a.demo, a.disc), pct(a.closed, a.demo)].map((v, i) => (
-                      <td key={i} className="mono" style={{ padding: '12px 14px', textAlign: 'right', color: '#8B95B2' }}>{isNaN(v) ? '—' : v.toFixed(0) + '%'}</td>
+                      <td key={i} className="mono px-3.5 py-3 text-right text-ink-2">{isNaN(v) ? '—' : v.toFixed(0) + '%'}</td>
                     ))}
                   </tr>
                 )
@@ -194,48 +242,72 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
         </div>
       </Card>
 
-      {/* Conversion pipeline */}
-      {(() => {
-        const stages = [
-          { label: 'Dials',      value: totals.dials,  color: '#00D4FF' },
-          { label: 'Conv',       value: totals.conv,   color: '#8B5CF6' },
-          { label: 'Discovery',  value: totals.disc,   color: '#FFB800' },
-          { label: 'Demo',       value: totals.demo,   color: '#FF3D9A' },
-          { label: 'Closed',     value: totals.closed, color: '#00E5A0' },
-        ]
-        return (
-          <Card>
-            <SectionTitle>Conversion pipeline · {rangeLabel}</SectionTitle>
-            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 8 }}>
-              {stages.map((s, i) => (
-                <div key={s.label} style={{ display: 'flex', alignItems: 'center', flex: i < stages.length - 1 ? '1 1 0' : 'none' }}>
-                  {/* Stage node */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: s.color, textTransform: 'uppercase', letterSpacing: 0.8 }}>{s.label}</div>
-                    <div className="mono" style={{ fontSize: 36, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{s.value}</div>
-                    <div style={{ width: 36, height: 3, borderRadius: 2, background: s.color, opacity: 0.7 }} />
-                  </div>
-                  {/* Connector */}
-                  {i < stages.length - 1 && (() => {
-                    const rate = stages[i + 1].value && s.value ? (stages[i + 1].value / s.value * 100) : 0
-                    return (
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '0 6px', minWidth: 48 }}>
-                        <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: rate > 0 ? '#8B95B2' : '#3A4460' }}>
-                          {rate.toFixed(0)}%
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 0 }}>
-                          <div style={{ flex: 1, height: 1, background: '#2A3350' }} />
-                          <span style={{ color: '#2A3350', fontSize: 10, lineHeight: 1 }}>▶</span>
-                        </div>
+      {/* Client breakdown table */}
+      <Card padding={0}>
+        <div className="px-5 py-4 border-b border-line">
+          <div className="text-[13px] font-semibold">Client breakdown</div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
+            <thead>
+              <tr className="text-ink-3 text-[10.5px] uppercase tracking-[0.5px]">
+                {['Client', 'Type', 'MRR', 'ARR', 'Rep', 'Date'].map((h) => (
+                  <th key={h} className={`${h === 'Client' ? 'text-left' : 'text-right'} px-3.5 py-3 font-semibold border-b border-line`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map((c) => {
+                const owner = reps.find((r) => r.id === c.owner_id)
+                const planColor = c.plan === 'Scale' ? '#8B5CF6' : c.plan === 'Growth' ? '#00D4FF' : '#FFB800'
+                return (
+                  <tr key={c.id} className="border-b border-[#1A1F30]">
+                    <td className="px-3.5 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.status === 'active' ? '#00E5A0' : '#FFB800' }} />
+                        <span className="font-semibold">{c.name}</span>
                       </div>
-                    )
-                  })()}
-                </div>
-              ))}
-            </div>
-          </Card>
-        )
-      })()}
+                    </td>
+                    <td className="px-3.5 py-3 text-right">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: planColor, background: planColor + '22' }}>{c.plan}</span>
+                    </td>
+                    <td className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{fmtMoney(c.mrr)}</td>
+                    <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(c.mrr * 12)}</td>
+                    <td className="px-3.5 py-3 text-right text-ink-2">{owner ? owner.name.split(' ')[0] : '—'}</td>
+                    <td className="mono px-3.5 py-3 text-right text-ink-3">{c.since_date}</td>
+                  </tr>
+                )
+              })}
+              {closedDeals.map((d) => {
+                const rep = reps.find((r) => r.id === d.rep_id)
+                return (
+                  <tr key={d.id} className="border-b border-[#1A1F30]">
+                    <td className="px-3.5 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-mint" />
+                        <span className="font-semibold">{d.company_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-3.5 py-3 text-right">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-mint" style={{ background: '#00E5A022' }}>New</span>
+                    </td>
+                    <td className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{fmtMoney(d.monthly_price)}</td>
+                    <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(d.monthly_price * 12)}</td>
+                    <td className="px-3.5 py-3 text-right text-ink-2">{rep ? rep.name.split(' ')[0] : '—'}</td>
+                    <td className="mono px-3.5 py-3 text-right text-ink-3">{d.closed_date}</td>
+                  </tr>
+                )
+              })}
+              {clients.length === 0 && closedDeals.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-3.5 py-8 text-center text-ink-3 text-[12px]">No clients yet</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
     </div>
   )
 }

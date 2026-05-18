@@ -1,4 +1,28 @@
+@import "tailwindcss";
+@source "../app/**/*.{ts,tsx}";
+@source "../components/**/*.{ts,tsx}";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@theme {
+  --color-bg-0:    #070A14;
+  --color-bg-1:    #0A0E1A;
+  --color-bg-2:    #0F1422;
+  --color-panel:   #131826;
+  --color-panel-2: #171D2E;
+  --color-line:    #1E2538;
+  --color-line-2:  #262E45;
+  --color-ink:     #FFFFFF;
+  --color-ink-1:   #D8DEEF;
+  --color-ink-2:   #8B95B2;
+  --color-ink-3:   #5A6685;
+  --color-cyan:    #00D4FF;
+  --color-magenta: #FF3D9A;
+  --color-amber:   #FFB800;
+  --color-mint:    #00E5A0;
+  --color-violet:  #8B5CF6;
+  --color-red:     #FF5468;
+  --color-blue:    #3B82F6;
+}
 
 :root {
   --bg-0: #070A14;

@@ -2,29 +2,37 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import type { Rep, Client, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
+import type { Rep, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
 import { relativeTime } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
 import { Card, Pill, SectionTitle, TargetBar } from './ui/primitives'
 import { Ring } from './charts'
+import { ClosedDealModal } from './ClosedDealModal'
+import {
+  getWeeklyCountsAction,
+  logActivityAction,
+  decrementActivityAction,
+  logClosedDealAction,
+} from '@/app/actions'
 
 interface LiveTrackerProps {
   reps: Rep[]
   initialFeed: ActivityLogEntry[]
   dailyTarget: Target | null
+  onDealClosed?: (deal: { rep_id: string; company_name: string; monthly_price: number; closed_date: string }) => void
 }
 
 const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps) {
-  const supabase = createClient()
+export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(reps[0]?.id ?? 'team')
   const [feed, setFeed] = useState<ActivityLogEntry[]>(initialFeed)
   const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
   const [now, setNow] = useState(new Date())
+  const [showClosedModal, setShowClosedModal] = useState(false)
 
   // Monday of the current week (ISO date string)
   const weekStartISO = useMemo(() => {
@@ -40,25 +48,14 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
     return () => clearInterval(id)
   }, [])
 
-  // load this week's logged counts from Supabase on mount
+  // load this week's logged counts via Server Action
   useEffect(() => {
-    supabase
-      .from('activity_log_entries')
-      .select('rep_id, metric_key')
-      .gte('logged_at', weekStartISO + 'T00:00:00')
-      .then(({ data }) => {
-        if (!data) return
-        const counts: CountsByRep = {}
-        data.forEach(({ rep_id, metric_key }) => {
-          if (!counts[rep_id]) counts[rep_id] = {}
-          counts[rep_id][metric_key] = (counts[rep_id][metric_key] ?? 0) + 1
-        })
-        setCountsByRep(counts)
-      })
+    getWeeklyCountsAction(weekStartISO).then(setCountsByRep)
   }, [])
 
-  // realtime subscription: new log entries appear in feed
+  // realtime subscription: new log entries appear in feed (Supabase Realtime only)
   useEffect(() => {
+    const supabase = createClient()
     const channel = supabase
       .channel('activity_log_entries')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log_entries' }, (payload) => {
@@ -79,6 +76,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
   const isTeam = activeRep === 'team'
   const rep = reps.find((r) => r.id === activeRep) ?? null
 
+  // Active rep's own counts (used for timeline + log tiles)
   const counts = isTeam
     ? reps.reduce<Record<string, number>>((acc, r) => {
         const rc = countsByRep[r.id] ?? {}
@@ -87,35 +85,34 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
       }, {})
     : (countsByRep[activeRep] ?? {})
 
-  const weeklyTargets: Record<string, number> = isTeam
-    ? Object.fromEntries(Object.entries(WEEKLY_TARGETS).map(([k, v]) => [k, v * reps.length]))
-    : { ...WEEKLY_TARGETS }
+  // Always team totals (used for ring charts vs team goal)
+  const teamCounts = reps.reduce<Record<string, number>>((acc, r) => {
+    const rc = countsByRep[r.id] ?? {}
+    ALL_METRICS.forEach((m) => { acc[m.k] = (acc[m.k] ?? 0) + (rc[m.k] ?? 0) })
+    return acc
+  }, {})
+
+  // Targets are team-wide (not per-rep)
+  const weeklyTargets: Record<string, number> = { ...WEEKLY_TARGETS }
 
   const logActivity = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
     const def = ALL_METRICS.find((m) => m.k === metricKey)
     if (!def) return
 
-    // optimistic update
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
     }))
 
-    const { data, error } = await supabase
-      .from('activity_log_entries')
-      .insert({ rep_id: activeRep, metric_key: def.k, label: def.label + ' logged', icon: def.icon, color: def.color })
-      .select()
-      .single()
-
-    if (error) {
-      // rollback optimistic update
+    try {
+      await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
+    } catch {
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 1) - 1) },
       }))
     }
-    // realtime channel will add the new entry to the feed
   }, [isTeam, rep, activeRep])
 
   const decrement = useCallback(async (metricKey: string) => {
@@ -124,90 +121,94 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
     const current = (countsByRep[activeRep] ?? {})[metricKey] ?? 0
     if (current <= 0) return
 
-    // optimistic update
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current - 1 },
     }))
 
-    const { data: entries } = await supabase
-      .from('activity_log_entries')
-      .select('id')
-      .eq('rep_id', activeRep)
-      .eq('metric_key', metricKey)
-      .gte('logged_at', weekStartISO + 'T00:00:00')
-      .order('logged_at', { ascending: false })
-      .limit(1)
+    const result = await decrementActivityAction(activeRep, metricKey, weekStartISO)
 
-    if (!entries?.length) {
-      // nothing to delete — rollback
+    if (!result.deleted) {
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
       }))
-      return
+    } else if (result.id) {
+      setFeed((f) => f.filter((e) => e.id !== result.id))
     }
+  }, [isTeam, rep, activeRep, countsByRep, weekStartISO])
 
-    const { error } = await supabase
-      .from('activity_log_entries')
-      .delete()
-      .eq('id', entries[0].id)
+  const logClosedDeal = useCallback(async (data: { companyName: string; monthlyPrice: number; closedDate: string }) => {
+    setShowClosedModal(false)
+    if (!rep) return
 
-    if (error) {
+    setCountsByRep((prev) => ({
+      ...prev,
+      [activeRep]: { ...(prev[activeRep] ?? {}), closed: ((prev[activeRep] ?? {}).closed ?? 0) + 1 },
+    }))
+
+    try {
+      const result = await logClosedDealAction({
+        repId: activeRep,
+        companyName: data.companyName,
+        monthlyPrice: data.monthlyPrice,
+        closedDate: data.closedDate,
+      })
+      onDealClosed?.({ rep_id: activeRep, company_name: data.companyName, monthly_price: data.monthlyPrice, closed_date: data.closedDate })
+    } catch {
       setCountsByRep((prev) => ({
         ...prev,
-        [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
+        [activeRep]: { ...(prev[activeRep] ?? {}), closed: Math.max(0, ((prev[activeRep] ?? {}).closed ?? 1) - 1) },
       }))
-    } else {
-      setFeed((f) => f.filter((e) => e.id !== entries[0].id))
     }
-  }, [isTeam, rep, activeRep, countsByRep])
+  }, [rep, activeRep, onDealClosed])
 
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="flex flex-col gap-[18px]">
 
       {/* Rep selector */}
       <Card padding={16}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+        <div className="flex justify-between items-center flex-wrap gap-3.5">
           <div>
-            <div style={{ fontSize: 11, color: '#5A6685', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+            <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">
               Live tracker · {todayStr}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+            <div className="text-lg font-bold mt-1">
               {isTeam ? 'Whole team' : rep?.name}
-              <span style={{ fontSize: 13, fontWeight: 400, color: '#8B95B2', marginLeft: 8 }}>
+              <span className="text-[13px] font-normal text-ink-2 ml-2">
                 {isTeam ? '· read-only' : `· ${rep?.role}`}
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 4, background: '#0F1422', padding: 4, borderRadius: 10, border: '1px solid #1E2538', flexWrap: 'wrap' }}>
+          <div className="flex gap-1 bg-bg-2 p-1 rounded-[10px] border border-line flex-wrap">
             <button
               onClick={() => setActiveRep('team')}
+              className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-[7px] transition-all"
               style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 7,
                 background: isTeam ? '#00D4FF22' : 'transparent',
                 border: isTeam ? '1px solid #00D4FF66' : '1px solid transparent',
               }}
             >
-              <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg, #00D4FF, #8B5CF6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #00D4FF, #8B5CF6)' }}>
                 <Icon name="team" size={12} color="#0A0E1A" />
               </div>
-              <span style={{ fontSize: 12, fontWeight: 600, color: isTeam ? '#00D4FF' : '#8B95B2' }}>Team</span>
+              <span className="text-[12px] font-semibold" style={{ color: isTeam ? '#00D4FF' : '#8B95B2' }}>Team</span>
             </button>
             {reps.map((r) => (
               <button
                 key={r.id}
                 onClick={() => setActiveRep(r.id)}
+                className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-[7px] transition-all"
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 7,
                   background: activeRep === r.id ? r.color + '22' : 'transparent',
                   border: activeRep === r.id ? `1px solid ${r.color}66` : '1px solid transparent',
                 }}
               >
                 <Avatar rep={r} size={22} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: activeRep === r.id ? r.color : '#8B95B2' }}>
+                <span className="text-[12px] font-semibold" style={{ color: activeRep === r.id ? r.color : '#8B95B2' }}>
                   {r.name.split(' ')[0]}
                 </span>
               </button>
@@ -216,38 +217,69 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
         </div>
       </Card>
 
-      {/* Key metric rings */}
+      {/* Key metrics — pipeline timeline + team rings */}
       <Card>
-        <SectionTitle right={<Pill color="#5A6685">{isTeam ? 'team · this week' : 'this week'}</Pill>}>
-          Key metrics vs target
-        </SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
-          {WEEKLY_KEY_METRICS.map((k) => {
+        <div className="flex justify-between items-start mb-3">
+          <SectionTitle>
+            {isTeam ? 'Team activity' : `${rep?.name.split(' ')[0]}'s activity`}
+            <span className="text-[11px] font-normal text-ink-3 ml-2">this week</span>
+          </SectionTitle>
+        </div>
+
+        {/* Timeline: rep's own numbers, no goal */}
+        <div className="flex items-start pt-1">
+          {WEEKLY_KEY_METRICS.map((k, i) => {
             const def = ALL_METRICS.find((m) => m.k === k)!
             const v = (counts[k] as number) ?? 0
-            const t = weeklyTargets[k] ?? 1
             return (
-              <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '8px 4px' }}>
-                <Ring value={v} target={t} color={def.color} size={120} stroke={10} label={def.short} />
-                <div style={{ textAlign: 'center' }}>
-                  <div className="mono" style={{ fontSize: 13, fontWeight: 700 }}>
-                    {v}<span style={{ color: '#5A6685', fontWeight: 400 }}> / {t}</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: '#8B95B2', marginTop: 2 }}>{def.label}</div>
+              <div key={k} className={`flex items-center ${i < WEEKLY_KEY_METRICS.length - 1 ? 'flex-1' : 'flex-none'}`}>
+                <div className="flex flex-col gap-1.5 shrink-0">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: def.color }}>{def.short}</div>
+                  <div className="mono text-[36px] font-extrabold text-white leading-none">{v}</div>
+                  <div className="text-[10px] text-ink-3">{def.label}</div>
                 </div>
+                {i < WEEKLY_KEY_METRICS.length - 1 && (
+                  <div className="flex-1 flex items-center px-4 min-w-10">
+                    <div className="flex-1 h-px bg-[#2A3350]" />
+                    <span className="text-[#2A3350] text-[10px] leading-none">▶</span>
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
+
+        {/* Ring charts: always team totals vs team goal */}
+        <div className="mt-6 pt-5 border-t border-line">
+          <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">Team vs goal</div>
+          <div className="grid grid-cols-4 gap-3.5">
+            {WEEKLY_KEY_METRICS.map((k) => {
+              const def = ALL_METRICS.find((m) => m.k === k)!
+              const v = (teamCounts[k] as number) ?? 0
+              const t = weeklyTargets[k] ?? 1
+              return (
+                <div key={k} className="flex flex-col items-center gap-2.5 py-1">
+                  <Ring value={v} target={t} color={def.color} size={110} stroke={9} label={def.short} />
+                  <div className="text-center">
+                    <div className="mono text-[13px] font-bold">
+                      {v}<span className="text-ink-3 font-normal"> / {t}</span>
+                    </div>
+                    <div className="text-[10.5px] text-ink-2 mt-0.5">{def.label}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </Card>
 
       {/* Log Activity + Feed */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 18, alignItems: 'flex-start' }}>
+      <div className="grid grid-cols-[3fr_1fr] gap-[18px] items-start">
         <Card padding={0}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1E2538', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="px-5 py-4 border-b border-line flex justify-between items-center">
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>Log activity</div>
-              <div style={{ fontSize: 10.5, color: '#5A6685', marginTop: 2 }}>
+              <div className="text-[13px] font-bold">Log activity</div>
+              <div className="text-[10.5px] text-ink-3 mt-0.5">
                 {isTeam ? 'read-only · pick a rep to log' : `tap +1 to log for ${rep?.name.split(' ')[0]}`}
               </div>
             </div>
@@ -255,35 +287,37 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
           </div>
 
           {isTeam && (
-            <div style={{ padding: '10px 14px', margin: '14px 16px 0', background: '#00D4FF11', border: '1px solid #00D4FF44', borderRadius: 8, fontSize: 11, color: '#8B95B2', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="mx-4 mt-3.5 px-3.5 py-2.5 rounded-lg flex items-center gap-2 text-[11px] text-ink-2"
+              style={{ background: '#00D4FF11', border: '1px solid #00D4FF44' }}>
               <Icon name="team" size={13} color="#00D4FF" />
               <span>Switch to a rep to log activity.</span>
             </div>
           )}
 
-          <div style={{ padding: 16 }}>
-            {METRIC_GROUPS.map((group, gi) => (
-              <div key={group.group} style={{ marginBottom: gi === METRIC_GROUPS.length - 1 ? 0 : 16 }}>
-                <div style={{ fontSize: 9.5, color: '#5A6685', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 8, padding: '0 2px' }}>
-                  {group.group}
+          {/* Columns layout: one column per metric group */}
+          <div className="flex gap-4 p-4">
+            {METRIC_GROUPS.map((group) => (
+              <div key={group.group} className="flex-1 flex flex-col gap-2.5">
+                {/* Column header */}
+                <div className="pb-2.5 mb-0.5 border-b-2 border-line-2">
+                  <div className="text-[11px] font-bold uppercase tracking-[1.2px] text-ink-1">{group.group}</div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-                  {group.items.map((def) => {
-                    const v = (counts[def.k] as number) ?? 0
-                    const t = weeklyTargets[def.k]
-                    return (
-                      <LogTile
-                        key={def.k}
-                        def={def}
-                        value={v}
-                        target={t}
-                        disabled={isTeam}
-                        onInc={() => logActivity(def.k)}
-                        onDec={() => decrement(def.k)}
-                      />
-                    )
-                  })}
-                </div>
+                {/* Tiles stacked vertically */}
+                {group.items.map((def) => {
+                  const v = (counts[def.k] as number) ?? 0
+                  const t = weeklyTargets[def.k]
+                  return (
+                    <LogTile
+                      key={def.k}
+                      def={def}
+                      value={v}
+                      target={t}
+                      disabled={isTeam}
+                      onInc={def.k === 'closed' ? () => setShowClosedModal(true) : () => logActivity(def.k)}
+                      onDec={() => decrement(def.k)}
+                    />
+                  )
+                })}
               </div>
             ))}
           </div>
@@ -291,35 +325,45 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
 
         {/* Activity feed */}
         <Card padding={0} style={{ position: 'sticky', top: 120 }}>
-          <div style={{ padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1E2538' }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Activity feed</div>
+          <div className="px-[18px] py-4 flex justify-between items-center border-b border-line">
+            <div className="text-[13px] font-bold">Activity feed</div>
             <Pill color="#00D4FF">live</Pill>
           </div>
-          <div style={{ maxHeight: 620, overflowY: 'auto', padding: '4px 14px 14px' }}>
+          <div className="max-h-[620px] overflow-y-auto px-3.5 pb-3.5 pt-1">
             {feed.length === 0 && (
-              <div style={{ padding: '40px 12px', textAlign: 'center', color: '#5A6685', fontSize: 12 }}>
+              <div className="py-10 px-3 text-center text-ink-3 text-[12px]">
                 No activity yet — start tapping +1.
               </div>
             )}
             {feed.map((item) => {
               const r = reps.find((x) => x.id === item.rep_id)
               return (
-                <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '28px 22px 1fr auto', alignItems: 'center', gap: 8, padding: '10px 2px', borderBottom: '1px solid #1E2538' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: item.color + '22', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div key={item.id} className="grid items-center gap-2 py-2.5 px-0.5 border-b border-line"
+                  style={{ gridTemplateColumns: '28px 22px 1fr auto' }}>
+                  <div className="w-7 h-7 rounded-[7px] inline-flex items-center justify-center"
+                    style={{ background: item.color + '22' }}>
                     <Icon name={item.icon} size={14} color={item.color} />
                   </div>
                   <Avatar rep={r ?? null} size={20} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</div>
-                    <div style={{ fontSize: 10, color: '#5A6685' }}>{r?.name.split(' ')[0]}</div>
+                  <div className="min-w-0">
+                    <div className="text-[11.5px] font-semibold truncate">{item.label}</div>
+                    <div className="text-[10px] text-ink-3">{r?.name.split(' ')[0]}</div>
                   </div>
-                  <div className="mono" style={{ fontSize: 10, color: '#5A6685' }}>{relativeTime(item.logged_at)}</div>
+                  <div className="mono text-[10px] text-ink-3">{relativeTime(item.logged_at)}</div>
                 </div>
               )
             })}
           </div>
         </Card>
       </div>
+
+      {showClosedModal && rep && (
+        <ClosedDealModal
+          rep={rep}
+          onSave={logClosedDeal}
+          onCancel={() => setShowClosedModal(false)}
+        />
+      )}
     </div>
   )
 }
@@ -336,57 +380,45 @@ interface LogTileProps {
 
 function LogTile({ def, value, target, disabled, onInc, onDec }: LogTileProps) {
   return (
-    <div style={{
-      background: '#1A2035',
-      border: `1px solid ${def.color}44`,
-      borderRadius: 11,
-      padding: 12,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-      height: disabled ? 'auto' : 140,
-      justifyContent: 'space-between',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <div style={{ width: 26, height: 26, borderRadius: 7, background: def.color + '22', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <div
+      className="rounded-[11px] p-3 flex flex-col gap-2 justify-between"
+      style={{
+        background: '#1A2035',
+        border: `1px solid ${def.color}44`,
+        minHeight: disabled ? 'auto' : 130,
+      }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-[26px] h-[26px] rounded-[7px] inline-flex items-center justify-center shrink-0"
+          style={{ background: def.color + '22' }}>
           <Icon name={def.icon} size={13} color={def.color} />
         </div>
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: '#D8DEEF', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis' }}>{def.short}</div>
+        <div className="text-[11.5px] font-semibold text-ink-1 leading-tight overflow-hidden text-ellipsis">{def.short}</div>
       </div>
       <div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span className="mono" style={{ fontSize: 26, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{value}</span>
-          {target != null && target > 0 && <span className="mono" style={{ fontSize: 10, color: '#5A6685' }}>/ {target}</span>}
+        <div className="flex items-baseline gap-1.5">
+          <span className="mono text-[26px] font-extrabold text-white leading-none">{value}</span>
+          {target != null && target > 0 && <span className="mono text-[10px] text-ink-3">/ {target}</span>}
         </div>
         {target != null && target > 0 && (
-          <div style={{ marginTop: 5 }}>
+          <div className="mt-[5px]">
             <TargetBar value={value} target={target} color={def.color} height={4} />
           </div>
         )}
       </div>
       {!disabled && (
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div className="flex gap-1.5">
           <button
             onClick={onInc}
-            style={{
-              flex: 1, padding: '8px 10px', borderRadius: 8,
-              background: def.color, color: '#0A0E1A',
-              fontWeight: 700, fontSize: 12,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer',
-            }}
+            className="flex-1 py-2 px-2.5 rounded-lg font-bold text-[12px] inline-flex items-center justify-center text-bg-1"
+            style={{ background: def.color }}
           >
             +1
           </button>
           <button
             onClick={onDec}
-            style={{
-              padding: '8px 10px', borderRadius: 8,
-              background: '#252D45', border: '1px solid #333E5C',
-              color: '#8B95B2', fontWeight: 700, fontSize: 12,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', flexShrink: 0,
-            }}
+            className="py-2 px-2.5 rounded-lg font-bold text-[12px] inline-flex items-center justify-center text-ink-2 shrink-0"
+            style={{ background: '#252D45', border: '1px solid #333E5C' }}
           >
             −1
           </button>

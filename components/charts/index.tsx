@@ -187,11 +187,11 @@ export function Ring({ value, target, size = 120, stroke = 10, color = '#00D4FF'
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
         style={{ transition: 'stroke-dasharray 600ms cubic-bezier(.2,.8,.2,1)' }}
       />
-      <text x={size / 2} y={size / 2 - 2} fill="#fff" fontSize={size * 0.22} textAnchor="middle" fontFamily="JetBrains Mono" fontWeight="700">
+      <text x={size / 2} y={size / 2 - 2} fill="#fff" fontSize={size * 0.22} textAnchor="middle" fontFamily="Inter, system-ui, sans-serif" fontWeight="700">
         {Math.round(ratio * 100)}%
       </text>
       {label && (
-        <text x={size / 2} y={size / 2 + size * 0.16} fill="#8B95B2" fontSize="10" textAnchor="middle">{label}</text>
+        <text x={size / 2} y={size / 2 + size * 0.16} fill="#8B95B2" fontSize="10" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{label}</text>
       )}
     </svg>
   )
@@ -267,8 +267,8 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
           <g key={m}>
             <line x1={t1x.toFixed(1)} y1={t1y.toFixed(1)} x2={t2x.toFixed(1)} y2={t2y.toFixed(1)}
               stroke={passed ? '#ffffff55' : '#2A3350'} strokeWidth="1.5" />
-            <text x={lx.toFixed(1)} y={(ly + 3.5).toFixed(1)} fill={passed ? '#8B95B2' : '#3A4460'}
-              fontSize="9" textAnchor="middle" fontFamily="JetBrains Mono">{m}</text>
+            <text x={lx.toFixed(1)} y={(ly + 3.5).toFixed(1)} fill={passed ? '#5A6685' : '#2A3350'}
+              fontSize="9" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{m}</text>
           </g>
         )
       })}
@@ -279,8 +279,8 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={zoneColor} />
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill="#0A0E1A" />
       {/* Value */}
-      <text x={cx} y={cy + 24} fill="#fff" fontSize="26" fontWeight="800" textAnchor="middle" fontFamily="JetBrains Mono">{value}</text>
-      <text x={cx} y={cy + 40} fill="#5A6685" fontSize="10" textAnchor="middle">active clients</text>
+      <text x={cx} y={cy + 24} fill="#D8DEEF" fontSize="26" fontWeight="600" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{value}</text>
+      <text x={cx} y={cy + 40} fill="#5A6685" fontSize="10" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">active clients</text>
     </svg>
   )
 }
@@ -299,7 +299,7 @@ interface FunnelBarProps {
 export function FunnelBar({ stages }: FunnelBarProps) {
   const max = Math.max(...stages.map((s) => s.value), 1)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', minHeight: 180 }}>
       {stages.map((s, i) => {
         const w = (s.value / max) * 100
         const prevVal = i > 0 ? stages[i - 1].value : null
