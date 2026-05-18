@@ -94,18 +94,14 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
         </Card>
       </div>
 
-      {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+      {/* KPI cards — 3 × 2 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
         <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
         <Card><KPI label="Discovery Booked" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
         <Card><KPI label="Demo Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         <Card><KPI label="Onboarding Set" value={totals.onb} target={tgt?.onb} color="#00E5A0" formatter={fmtNum} delta={delta(totals.onb, prevTotals.onb)} /></Card>
         <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
-        <Card><KPI label="Closed Won" value={totals.closed} target={tgt?.closed} color="#3B82F6" formatter={fmtNum} delta={delta(totals.closed, prevTotals.closed)} /></Card>
       </div>
 
       {/* Trend + Funnel */}
