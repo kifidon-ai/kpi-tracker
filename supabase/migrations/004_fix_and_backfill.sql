@@ -7,7 +7,7 @@
 -- 1. Add user_id column if it wasn't added yet
 ALTER TABLE public.reps ADD COLUMN IF NOT EXISTS user_id UUID UNIQUE REFERENCES auth.users(id);
 
--- 2. Recreate the trigger function
+-- 2. Recreate the trigger function 
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
