@@ -23,3 +23,5 @@ pnpm-debug.log*
 
 # system files
 .DS_Store
+.vercel
+.env*.local

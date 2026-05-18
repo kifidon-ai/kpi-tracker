@@ -17,7 +17,7 @@ AS $$
 DECLARE
   email_prefix  TEXT;
   name_parts    TEXT[];
-  full_name     TEXT;
+  full_name     TEXT; 
   initials_text TEXT;
   colors        TEXT[] := ARRAY[
     '#00D4FF','#FF3D9A','#FFB800','#00E5A0',
