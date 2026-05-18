@@ -206,79 +206,81 @@ interface SpeedometerProps {
   size?: number
 }
 
-export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 100, color = '#00D4FF', size = 220 }: SpeedometerProps) {
+export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 100, color = '#00D4FF', size = 200 }: SpeedometerProps) {
   const cx = size / 2
-  const r = size * 0.39
-  const sw = 13
-  const cy = r + sw + 10
-  const svgH = cy + 50
+  const r = size / 2 - 16        // radius: leaves 16px margin each side for the track
+  const sw = 10                   // track stroke width
+  const cy = r + sw / 2 + 16     // center: 16px clearance above arc top
+  const svgH = cy + 56            // room for value text below
 
   const toRad = (deg: number) => (deg * Math.PI) / 180
-  // value 0 → 180° (left), value max → 0° (right)
-  const mathDeg = (v: number) => 180 - (Math.min(v, max) / max) * 180
-  const pt = (deg: number, radius: number): [number, number] => [
-    cx + radius * Math.cos(toRad(deg)),
-    cy - radius * Math.sin(toRad(deg)),
+  // 0 → left (180°), max → right (0°)
+  const mathDeg = (v: number) => 180 - (Math.min(Math.max(v, 0), max) / max) * 180
+  const pt = (angleDeg: number, radius: number): [number, number] => [
+    cx + radius * Math.cos(toRad(angleDeg)),
+    cy - radius * Math.sin(toRad(angleDeg)),
   ]
 
-  const clamp = Math.min(value, max)
-  const needleDeg = mathDeg(clamp)
-  const [nx, ny] = pt(needleDeg, r - sw)
-
-  // color zones
-  const zones = [
-    { from: 0, to: 20, c: '#FF546888' },
-    { from: 20, to: 40, c: '#FFB80088' },
-    { from: 40, to: 80, c: '#00D4FF88' },
-    { from: 80, to: 100, c: '#00E5A088' },
-  ]
-
-  const arcSegment = (fromV: number, toV: number, radius: number, strokeColor: string) => {
-    const a1 = mathDeg(fromV)
-    const a2 = mathDeg(toV)
-    const [sx, sy] = pt(a1, radius)
-    const [ex, ey] = pt(a2, radius)
-    return (
-      <path
-        key={fromV}
-        d={`M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${radius} ${radius} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`}
-        fill="none"
-        stroke={strokeColor}
-        strokeWidth={sw}
-        strokeLinecap="butt"
-      />
-    )
+  // arc path helper — always large=0, sweep=1 for sub-arcs of a semicircle
+  const arcD = (fromV: number, toV: number) => {
+    const [sx, sy] = pt(mathDeg(fromV), r)
+    const [ex, ey] = pt(mathDeg(toV), r)
+    return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${r} ${r} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`
   }
+
+  const clamp = Math.min(Math.max(value, 0), max)
+  const [nx, ny] = pt(mathDeg(clamp), r * 0.72)
+
+  const zoneColor = clamp < 20 ? '#FF5468' : clamp < 40 ? '#FFB800' : clamp < 80 ? '#00D4FF' : '#00E5A0'
+
+  const zones = [
+    { from: 0,  to: 20,  c: '#FF5468' },
+    { from: 20, to: 40,  c: '#FFB800' },
+    { from: 40, to: 80,  c: '#00D4FF' },
+    { from: 80, to: 100, c: '#00E5A0' },
+  ]
+
+  // milestone labels sit inside the arc so they're never clipped
+  const labelR = r - sw / 2 - 16
 
   return (
     <svg width={size} height={svgH} viewBox={`0 0 ${size} ${svgH}`} style={{ display: 'block', margin: '0 auto' }}>
       {/* Background track */}
-      <path
-        d={`M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 0 1 ${(cx + r).toFixed(2)} ${cy.toFixed(2)}`}
-        fill="none" stroke="#1E2538" strokeWidth={sw} strokeLinecap="round"
-      />
-      {/* Color zones */}
-      {zones.map((z) => arcSegment(z.from, z.to, r, z.c))}
-      {/* Milestone ticks and labels */}
+      <path d={`M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 0 1 ${(cx + r).toFixed(2)} ${cy.toFixed(2)}`}
+        fill="none" stroke="#1A2035" strokeWidth={sw} strokeLinecap="round" />
+      {/* Faint zone colouring on the track */}
+      {zones.map((z) => (
+        <path key={z.from} d={arcD(z.from, z.to)} fill="none" stroke={z.c + '28'} strokeWidth={sw} strokeLinecap="butt" />
+      ))}
+      {/* Progress arc */}
+      {clamp > 0 && (
+        <path d={arcD(0, clamp)} fill="none" stroke={zoneColor} strokeWidth={sw} strokeLinecap="round" opacity={0.9} />
+      )}
+      {/* Milestone ticks + inside labels */}
       {milestones.map((m) => {
         const deg = mathDeg(m)
-        const [ix, iy] = pt(deg, r - sw / 2 - 3)
-        const [ox, oy] = pt(deg, r + sw / 2 + 3)
-        const [lx, ly] = pt(deg, r + sw / 2 + 16)
+        const [t1x, t1y] = pt(deg, r + sw / 2 + 1)
+        const [t2x, t2y] = pt(deg, r - sw / 2 - 1)
+        const [lx, ly] = pt(deg, labelR)
+        const passed = m <= clamp
         return (
           <g key={m}>
-            <line x1={ix.toFixed(1)} y1={iy.toFixed(1)} x2={ox.toFixed(1)} y2={oy.toFixed(1)} stroke="#fff" strokeWidth="2" />
-            <text x={lx.toFixed(1)} y={ly.toFixed(1)} fill="#8B95B2" fontSize="10" textAnchor="middle" fontFamily="JetBrains Mono">{m}</text>
+            <line x1={t1x.toFixed(1)} y1={t1y.toFixed(1)} x2={t2x.toFixed(1)} y2={t2y.toFixed(1)}
+              stroke={passed ? '#ffffff55' : '#2A3350'} strokeWidth="1.5" />
+            <text x={lx.toFixed(1)} y={(ly + 3.5).toFixed(1)} fill={passed ? '#8B95B2' : '#3A4460'}
+              fontSize="9" textAnchor="middle" fontFamily="JetBrains Mono">{m}</text>
           </g>
         )
       })}
       {/* Needle */}
-      <line x1={cx.toFixed(1)} y1={cy.toFixed(1)} x2={nx.toFixed(1)} y2={ny.toFixed(1)} stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={color} />
-      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="3" fill="#0A0E1A" />
+      <line x1={cx.toFixed(1)} y1={cy.toFixed(1)} x2={nx.toFixed(1)} y2={ny.toFixed(1)}
+        stroke="#D8DEEF" strokeWidth="2" strokeLinecap="round" />
+      {/* Hub */}
+      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={zoneColor} />
+      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill="#0A0E1A" />
       {/* Value */}
-      <text x={cx} y={cy + 22} fill="#fff" fontSize="30" fontWeight="800" textAnchor="middle" fontFamily="JetBrains Mono">{value}</text>
-      <text x={cx} y={cy + 38} fill="#5A6685" fontSize="10" textAnchor="middle">active clients</text>
+      <text x={cx} y={cy + 24} fill="#fff" fontSize="26" fontWeight="800" textAnchor="middle" fontFamily="JetBrains Mono">{value}</text>
+      <text x={cx} y={cy + 40} fill="#5A6685" fontSize="10" textAnchor="middle">active clients</text>
     </svg>
   )
 }

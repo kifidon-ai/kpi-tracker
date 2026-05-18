@@ -102,9 +102,9 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
             </div>
           </div>
         </Card>
-        <Card style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8, alignSelf: 'flex-start' }}>Active Clients</div>
-          <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} color="#00D4FF" size={200} />
+        <Card style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4, alignSelf: 'flex-start' }}>Active Clients</div>
+          <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
         </Card>
       </div>
 
