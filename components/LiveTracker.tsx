@@ -111,13 +111,51 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
     // realtime channel will add the new entry to the feed
   }, [isTeam, rep, activeRep])
 
-  const decrement = useCallback((metricKey: string) => {
-    if (isTeam) return
+  const decrement = useCallback(async (metricKey: string) => {
+    if (isTeam || !rep) return
+
+    const current = (countsByRep[activeRep] ?? {})[metricKey] ?? 0
+    if (current <= 0) return
+
+    // optimistic update
     setCountsByRep((prev) => ({
       ...prev,
-      [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 0) - 1) },
+      [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current - 1 },
     }))
-  }, [isTeam, activeRep])
+
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const { data: entries } = await supabase
+      .from('activity_log_entries')
+      .select('id')
+      .eq('rep_id', activeRep)
+      .eq('metric_key', metricKey)
+      .gte('logged_at', todayStr + 'T00:00:00')
+      .order('logged_at', { ascending: false })
+      .limit(1)
+
+    if (!entries?.length) {
+      // nothing to delete — rollback
+      setCountsByRep((prev) => ({
+        ...prev,
+        [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
+      }))
+      return
+    }
+
+    const { error } = await supabase
+      .from('activity_log_entries')
+      .delete()
+      .eq('id', entries[0].id)
+
+    if (error) {
+      setCountsByRep((prev) => ({
+        ...prev,
+        [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
+      }))
+    } else {
+      setFeed((f) => f.filter((e) => e.id !== entries[0].id))
+    }
+  }, [isTeam, rep, activeRep, countsByRep])
 
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
