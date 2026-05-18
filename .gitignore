@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+build/
+
+# environment files
+.env*
+!.env.example
+
+# local tooling and caches
+.agents/
+.vercel/
+tsconfig.tsbuildinfo
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# system files
+.DS_Store
