@@ -231,10 +231,11 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
   const clamp = Math.min(Math.max(value, 0), max)
   const [nx, ny] = pt(mathDeg(clamp), r * 0.72)
 
-  const zoneColor = clamp < 20 ? '#FF5468' : clamp < 40 ? '#FFB800' : clamp < 80 ? '#00D4FF' : '#00E5A0'
+  const zoneColor = clamp < 10 ? '#FF5468' : clamp < 20 ? '#8B5CF6' : clamp < 40 ? '#FFB800' : clamp < 80 ? '#00D4FF' : '#00E5A0'
 
   const zones = [
-    { from: 0,  to: 20,  c: '#FF5468' },
+    { from: 0,  to: 10,  c: '#FF5468' },
+    { from: 10, to: 20,  c: '#8B5CF6' },
     { from: 20, to: 40,  c: '#FFB800' },
     { from: 40, to: 80,  c: '#00D4FF' },
     { from: 80, to: 100, c: '#00E5A0' },

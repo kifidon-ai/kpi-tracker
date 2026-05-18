@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target, ClosedDeal } from '@/lib/types'
+import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target } from '@/lib/types'
 import { fmtMoney } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { LiveTracker } from './LiveTracker'
@@ -15,30 +15,31 @@ interface ShellProps {
   activity: ActivityDaily[]
   feed: ActivityLogEntry[]
   targets: Target[]
-  closedDeals: ClosedDeal[]
 }
 
 type Tab = 'live' | 'team'
 
-export function Shell({ reps, clients, activity, feed, targets, closedDeals: initialClosedDeals }: ShellProps) {
-  const [tab, setTab] = useState<Tab>('live')
-  const [closedDeals, setClosedDeals] = useState<ClosedDeal[]>(initialClosedDeals)
+export function Shell({ reps, clients: initialClients, activity, feed, targets }: ShellProps) {
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ss-tab')
+      if (saved === 'live' || saved === 'team') return saved
+    }
+    return 'live'
+  })
+
+  function handleTabChange(t: Tab) {
+    setTab(t)
+    localStorage.setItem('ss-tab', t)
+  }
+  const [clients, setClients] = useState<Client[]>(initialClients)
   const router = useRouter()
 
-  const clientsMrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
-  const closedDealsMrr = closedDeals.reduce((s, d) => s + d.monthly_price, 0)
-  const mrr = clientsMrr + closedDealsMrr
+  const mrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
+  const activeClientCount = clients.filter((c) => c.status === 'active').length
 
-  function handleDealClosed(deal: { rep_id: string; company_name: string; monthly_price: number; closed_date: string }) {
-    const newDeal: ClosedDeal = {
-      id: crypto.randomUUID(),
-      rep_id: deal.rep_id,
-      company_name: deal.company_name,
-      monthly_price: deal.monthly_price,
-      closed_date: deal.closed_date,
-      created_at: new Date().toISOString(),
-    }
-    setClosedDeals((prev) => [newDeal, ...prev])
+  function handleDealClosed(client: Client) {
+    setClients((prev) => [client, ...prev])
   }
 
   async function signOut() {
@@ -47,7 +48,6 @@ export function Shell({ reps, clients, activity, feed, targets, closedDeals: ini
     router.push('/login')
     router.refresh()
   }
-  const activeClientCount = clients.filter((c) => c.status === 'active').length + closedDeals.length
 
   const dailyTarget = targets.find((t) => t.period === 'daily') ?? null
 
@@ -105,7 +105,7 @@ export function Shell({ reps, clients, activity, feed, targets, closedDeals: ini
             return (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
+                onClick={() => handleTabChange(t.id)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -140,7 +140,6 @@ export function Shell({ reps, clients, activity, feed, targets, closedDeals: ini
           <TeamPerformance
             reps={reps}
             clients={clients}
-            closedDeals={closedDeals}
             activity={activity}
             targets={targets}
             initialMrr={mrr}

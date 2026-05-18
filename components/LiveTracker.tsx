@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import type { Rep, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
+import type { Rep, Client, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
-import { relativeTime } from '@/lib/helpers'
+import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
-import { Card, Pill, SectionTitle, TargetBar } from './ui/primitives'
+import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
 import { Ring } from './charts'
 import { ClosedDealModal } from './ClosedDealModal'
 import {
@@ -21,7 +21,7 @@ interface LiveTrackerProps {
   reps: Rep[]
   initialFeed: ActivityLogEntry[]
   dailyTarget: Target | null
-  onDealClosed?: (deal: { rep_id: string; company_name: string; monthly_price: number; closed_date: string }) => void
+  onDealClosed?: (client: Client) => void
 }
 
 const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
@@ -33,8 +33,17 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
   const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
   const [now, setNow] = useState(new Date())
   const [showClosedModal, setShowClosedModal] = useState(false)
+  const [range, setRange] = useState<LiveRange>('week')
+  const [offset, setOffset] = useState(0)
 
-  // Monday of the current week (ISO date string)
+  const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
+  const isHistorical = offset > 0
+  const label = getPeriodLabel(range, offset, bounds)
+
+  const startISO = bounds.start.toISOString().slice(0, 10)
+  const endISO   = bounds.end.toISOString().slice(0, 10)
+
+  // Current week start — used by decrementActivityAction to find entries to delete
   const weekStartISO = useMemo(() => {
     const d = new Date()
     d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1))
@@ -42,16 +51,21 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
     return d.toISOString().slice(0, 10)
   }, [])
 
+  function handleRangeChange(v: string) {
+    setRange(v as LiveRange)
+    setOffset(0)
+  }
+
   // tick relative timestamps every minute
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
 
-  // load this week's logged counts via Server Action
+  // Reload counts whenever the period changes
   useEffect(() => {
-    getWeeklyCountsAction(weekStartISO).then(setCountsByRep)
-  }, [])
+    getWeeklyCountsAction(startISO, endISO).then(setCountsByRep)
+  }, [startISO, endISO])
 
   // realtime subscription: new log entries appear in feed (Supabase Realtime only)
   useEffect(() => {
@@ -154,7 +168,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
         monthlyPrice: data.monthlyPrice,
         closedDate: data.closedDate,
       })
-      onDealClosed?.({ rep_id: activeRep, company_name: data.companyName, monthly_price: data.monthlyPrice, closed_date: data.closedDate })
+      onDealClosed?.(result.client)
     } catch {
       setCountsByRep((prev) => ({
         ...prev,
@@ -173,16 +187,36 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
         <div className="flex justify-between items-center flex-wrap gap-3.5">
           <div>
             <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">
-              Live tracker · {todayStr}
+              {isHistorical ? 'Historical view' : `Live tracker · ${todayStr}`}
             </div>
             <div className="text-lg font-bold mt-1">
               {isTeam ? 'Whole team' : rep?.name}
               <span className="text-[13px] font-normal text-ink-2 ml-2">
-                {isTeam ? '· read-only' : `· ${rep?.role}`}
+                {isTeam ? '· read-only' : isHistorical ? '· historical' : `· ${rep?.role}`}
               </span>
             </div>
           </div>
-          <div className="flex gap-1 bg-bg-2 p-1 rounded-[10px] border border-line flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setOffset((o) => o + 1)}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none"
+              >←</button>
+              <span className="text-[12px] text-ink-2 font-medium w-[130px] text-center">{label}</span>
+              <button
+                onClick={() => setOffset((o) => Math.max(0, o - 1))}
+                disabled={offset === 0}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+              >→</button>
+            </div>
+            <Segmented
+              value={range}
+              onChange={handleRangeChange}
+              options={[{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]}
+            />
+          </div>
+        </div>
+        <div className="mt-3.5 flex gap-1 bg-bg-2 p-1 rounded-[10px] border border-line flex-wrap">
             <button
               onClick={() => setActiveRep('team')}
               className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-[7px] transition-all"
@@ -214,7 +248,6 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
               </button>
             ))}
           </div>
-        </div>
       </Card>
 
       {/* Key metrics — pipeline timeline + team rings */}
@@ -222,7 +255,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
         <div className="flex justify-between items-start mb-3">
           <SectionTitle>
             {isTeam ? 'Team activity' : `${rep?.name.split(' ')[0]}'s activity`}
-            <span className="text-[11px] font-normal text-ink-3 ml-2">this week</span>
+            <span className="text-[11px] font-normal text-ink-3 ml-2">{label.toLowerCase()}</span>
           </SectionTitle>
         </div>
 
@@ -286,7 +319,14 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
             {!isTeam && rep && <Avatar rep={rep} size={32} />}
           </div>
 
-          {isTeam && (
+          {isHistorical && (
+            <div className="mx-4 mt-3.5 px-3.5 py-2.5 rounded-lg flex items-center gap-2 text-[11px] text-ink-2"
+              style={{ background: '#FFB80011', border: '1px solid #FFB80044' }}>
+              <Icon name="log" size={13} color="#FFB800" />
+              <span>Viewing {label.toLowerCase()} — logging is disabled for past periods.</span>
+            </div>
+          )}
+          {!isHistorical && isTeam && (
             <div className="mx-4 mt-3.5 px-3.5 py-2.5 rounded-lg flex items-center gap-2 text-[11px] text-ink-2"
               style={{ background: '#00D4FF11', border: '1px solid #00D4FF44' }}>
               <Icon name="team" size={13} color="#00D4FF" />
@@ -312,7 +352,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
                       def={def}
                       value={v}
                       target={t}
-                      disabled={isTeam}
+                      disabled={isTeam || isHistorical}
                       onInc={def.k === 'closed' ? () => setShowClosedModal(true) : () => logActivity(def.k)}
                       onDec={() => decrement(def.k)}
                     />

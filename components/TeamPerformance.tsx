@@ -1,15 +1,14 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { Rep, Client, ClosedDeal, ActivityDaily, Target } from '@/lib/types'
-import { aggregate, inRange, fmtMoney, fmtNum, pct } from '@/lib/helpers'
-import { Card, Segmented, Pill, SectionTitle, KPI, TargetBar } from './ui/primitives'
-import { LineChart, FunnelBar, Ring, Sparkline, Speedometer } from './charts'
+import type { Rep, Client, ActivityDaily, Target } from '@/lib/types'
+import { aggregate, fmtMoney, fmtNum, pct } from '@/lib/helpers'
+import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
+import { LineChart, FunnelBar, Speedometer } from './charts'
 
 interface TeamPerformanceProps {
   reps: Rep[]
   clients: Client[]
-  closedDeals: ClosedDeal[]
   activity: ActivityDaily[]
   targets: Target[]
   initialMrr: number
@@ -18,29 +17,93 @@ interface TeamPerformanceProps {
 
 type Range = 'day' | 'week' | 'month' | 'all'
 
-export function TeamPerformance({ reps, clients, closedDeals, activity, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+function getPeriodBounds(range: Range, offset: number): { start: Date; end: Date } | null {
+  if (range === 'all') return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  if (range === 'day') {
+    const d = new Date(today)
+    d.setDate(today.getDate() - offset)
+    return { start: d, end: d }
+  }
+  if (range === 'week') {
+    const dow = today.getDay()
+    const daysFromMonday = dow === 0 ? 6 : dow - 1
+    const thisMonday = new Date(today)
+    thisMonday.setDate(today.getDate() - daysFromMonday)
+    const start = new Date(thisMonday)
+    start.setDate(thisMonday.getDate() - offset * 7)
+    const end = offset === 0 ? new Date(today) : new Date(start)
+    if (offset > 0) end.setDate(start.getDate() + 6)
+    return { start, end }
+  }
+  // month
+  const start = new Date(today.getFullYear(), today.getMonth() - offset, 1)
+  const end = offset === 0
+    ? new Date(today)
+    : new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
+  return { start, end }
+}
+
+function inBounds(dateStr: string, b: { start: Date; end: Date } | null): boolean {
+  if (!b) return true
+  const d = new Date(dateStr + 'T00:00')
+  return d >= b.start && d <= b.end
+}
+
+function periodLabel(range: Range, offset: number, b: { start: Date; end: Date } | null): string {
+  if (range === 'all') return 'all time'
+  if (!b) return ''
+  if (range === 'day') {
+    if (offset === 0) return 'Today'
+    if (offset === 1) return 'Yesterday'
+    return b.start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  }
+  if (range === 'week') {
+    if (offset === 0) return 'This week'
+    const s = b.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    const e = b.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `${s} – ${e}`
+  }
+  if (offset === 0) return 'This month'
+  return b.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
+export function TeamPerformance({ reps, clients, activity, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
   const [range, setRange] = useState<Range>('week')
+  const [offset, setOffset] = useState(0)
   const [trendGranularity, setTrendGranularity] = useState<'week' | 'day'>('week')
+
+  function handleRangeChange(v: string) {
+    setRange(v as Range)
+    setOffset(0)
+  }
 
   const tgt = useMemo(() => {
     const period = range === 'day' ? 'daily' : range === 'week' ? 'weekly' : range === 'month' ? 'monthly' : null
     return targets.find((t) => t.period === period) ?? null
   }, [range, targets])
 
-  const filtered = useMemo(() => activity.filter((r) => inRange(r.date, range)), [activity, range])
-  const totals = useMemo(() => aggregate(filtered), [filtered])
+  const bounds     = useMemo(() => getPeriodBounds(range, offset),     [range, offset])
+  const prevBounds = useMemo(() => getPeriodBounds(range, offset + 1), [range, offset])
 
-  const prev = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return activity.filter((r) => {
-      const d = new Date(r.date + 'T00:00')
-      if (range === 'day') { const t = new Date(today); t.setDate(today.getDate() - 1); return d.toDateString() === t.toDateString() }
-      if (range === 'week') { const end = new Date(today); end.setDate(today.getDate() - 7); const start = new Date(end); start.setDate(end.getDate() - 6); return d >= start && d <= end }
-      const pm = new Date(today); pm.setMonth(today.getMonth() - 1); return d.getMonth() === pm.getMonth() && d.getFullYear() === pm.getFullYear()
-    })
-  }, [activity, range])
-  const prevTotals = useMemo(() => aggregate(prev), [prev])
+  const filtered      = useMemo(() => activity.filter((r) => inBounds(r.date, bounds)),      [activity, bounds])
+  const prev          = useMemo(() => activity.filter((r) => inBounds(r.date, prevBounds)),   [activity, prevBounds])
+  const totals        = useMemo(() => aggregate(filtered), [filtered])
+  const prevTotals    = useMemo(() => aggregate(prev),     [prev])
+
+  const filteredClients = useMemo(
+    () => clients.filter((c) => c.since_date && inBounds(c.since_date, bounds)),
+    [clients, bounds],
+  )
+  const prevClients = useMemo(
+    () => clients.filter((c) => c.since_date && inBounds(c.since_date, prevBounds)),
+    [clients, prevBounds],
+  )
+
+  const closedCount     = filteredClients.length + totals.closed
+  const prevClosedCount = prevClients.length + prevTotals.closed
 
   const weeks = useMemo(() => {
     const out = []
@@ -65,17 +128,16 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
   }, [activity])
 
   const trendData = trendGranularity === 'week' ? weeks : days
-
   const delta = (a: number, b: number) => (b ? ((a - b) / b) * 100 : null)
-  const rangeLabel = range === 'day' ? 'today' : range === 'week' ? 'this week' : range === 'month' ? 'this month' : 'all time'
+  const label = periodLabel(range, offset, bounds)
   const arr = initialMrr * 12
 
   const pipelineStages = [
-    { label: 'Dials',     value: totals.dials,  color: '#00D4FF' },
-    { label: 'Conv',      value: totals.conv,   color: '#8B5CF6' },
-    { label: 'Discovery', value: totals.disc,   color: '#FFB800' },
-    { label: 'Demo',      value: totals.demo,   color: '#FF3D9A' },
-    { label: 'Closed',    value: totals.closed, color: '#00E5A0' },
+    { label: 'Dials',     value: totals.dials, color: '#00D4FF' },
+    { label: 'Conv',      value: totals.conv,  color: '#8B5CF6' },
+    { label: 'Discovery', value: totals.disc,  color: '#FFB800' },
+    { label: 'Demo',      value: totals.demo,  color: '#FF3D9A' },
+    { label: 'Closed',    value: closedCount,  color: '#00E5A0' },
   ]
 
   return (
@@ -85,13 +147,29 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
       <div className="flex justify-between items-center px-1 pt-1">
         <div>
           <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">Historical overview</div>
-          <div className="text-lg font-bold mt-1">Team performance · {rangeLabel}</div>
+          <div className="text-lg font-bold mt-1">Team performance · {label.toLowerCase()}</div>
         </div>
-        <Segmented
-          value={range}
-          onChange={(v) => setRange(v as Range)}
-          options={[{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }, { value: 'all', label: 'All' }]}
-        />
+        <div className="flex items-center gap-3">
+          {range !== 'all' && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setOffset((o) => o + 1)}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none"
+              >←</button>
+              <span className="text-[12px] text-ink-2 font-medium w-[130px] text-center">{label}</span>
+              <button
+                onClick={() => setOffset((o) => Math.max(0, o - 1))}
+                disabled={offset === 0}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+              >→</button>
+            </div>
+          )}
+          <Segmented
+            value={range}
+            onChange={handleRangeChange}
+            options={[{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }, { value: 'all', label: 'All' }]}
+          />
+        </div>
       </div>
 
       {/* Hero row: KPI grid + pipeline left, speedometer + ARR right */}
@@ -100,17 +178,17 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
         {/* Left: 3×2 KPI grid + conversion pipeline */}
         <div className="flex flex-col gap-3.5">
           <div className="grid grid-cols-3 gap-3.5">
-            <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
-            <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
-            <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
-            <Card><KPI label="Discovery" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
-            <Card><KPI label="Demo" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
-            <Card><KPI label="Closed" value={totals.closed} target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(totals.closed, prevTotals.closed)} /></Card>
+            <Card><KPI label="Dials"         value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
+            <Card><KPI label="Voicemails"    value={totals.vm}    color="#5A6685"     formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
+            <Card><KPI label="Conversations" value={totals.conv}  target={tgt?.conv}  color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
+            <Card><KPI label="Discovery"     value={totals.disc}  target={tgt?.disc}  color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
+            <Card><KPI label="Demo"          value={totals.demo}  target={tgt?.demo}  color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
+            <Card><KPI label="Closed"        value={closedCount}  target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
           </div>
 
           {/* Conversion pipeline */}
           <Card>
-            <SectionTitle>Conversion pipeline · {rangeLabel}</SectionTitle>
+            <SectionTitle>Conversion pipeline · {label.toLowerCase()}</SectionTitle>
             <div className="flex items-center pt-2">
               {pipelineStages.map((s, i) => (
                 <div key={s.label} className={`flex items-center ${i < pipelineStages.length - 1 ? 'flex-1' : 'flex-none'}`}>
@@ -145,12 +223,11 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
           <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
           <div className="w-full border-t border-line mt-4 pt-4">
             <div className="mx-auto w-1/2 flex flex-col items-center justify-center border-b border-line mb-2">
-            <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold mb-1.5">Annual Recurring Revenue</div>
-            <div className="mono text-[34px] font-extrabold text-white tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
-            <div className="flex items-center gap-2.5 mt-2">
-              <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
-            </div>
-              
+              <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold mb-1.5">Annual Recurring Revenue</div>
+              <div className="mono text-[34px] font-extrabold text-white tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
+              <div className="flex items-center gap-2.5 mt-2">
+                <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
+              </div>
             </div>
           </div>
         </Card>
@@ -179,7 +256,7 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
             labels={trendData.map((w) => w.label)}
             series={[
               { name: 'Dials', color: '#00D4FF', data: trendData.map((w) => w.dials) },
-              { name: 'Conv', color: '#8B5CF6', data: trendData.map((w) => w.conv) },
+              { name: 'Conv',  color: '#8B5CF6', data: trendData.map((w) => w.conv) },
               { name: 'Demos', color: '#FF3D9A', data: trendData.map((w) => w.demo * 8) },
             ]}
             height={240}
@@ -190,19 +267,19 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
         <Card className="flex flex-col">
           <SectionTitle>Funnel</SectionTitle>
           <FunnelBar stages={[
-            { label: 'Dials',         value: totals.dials,  color: '#00D4FF' },
-            { label: 'Conversations', value: totals.conv,   color: '#8B5CF6' },
-            { label: 'Discovery',     value: totals.disc,   color: '#FFB800' },
-            { label: 'Demo ',   value: totals.demo,   color: '#FF3D9A' },
-            { label: 'Won',    value: totals.closed, color: '#00E5A0' },
+            { label: 'Dials',         value: totals.dials, color: '#00D4FF' },
+            { label: 'Conversations', value: totals.conv,  color: '#8B5CF6' },
+            { label: 'Discovery',     value: totals.disc,  color: '#FFB800' },
+            { label: 'Demo',          value: totals.demo,  color: '#FF3D9A' },
+            { label: 'Won',           value: closedCount,  color: '#00E5A0' },
           ]} />
         </Card>
       </div>
 
-      {/* Rep breakdown table */}
+      {/* Per-rep breakdown */}
       <Card padding={0}>
         <div className="px-5 py-4 border-b border-line">
-          <div className="text-[13px] font-semibold">Per-rep breakdown · {rangeLabel}</div>
+          <div className="text-[13px] font-semibold">Per-rep breakdown · {label.toLowerCase()}</div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[12.5px]">
@@ -217,6 +294,7 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
               {reps.map((rep) => {
                 const rows = filtered.filter((r) => r.rep_id === rep.id)
                 const a = aggregate(rows)
+                const repClosed = filteredClients.filter((c) => c.owner_id === rep.id).length + a.closed
                 return (
                   <tr key={rep.id} className="border-b border-[#1A1F30]">
                     <td className="px-3.5 py-3">
@@ -228,10 +306,11 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
                         <span className="font-semibold">{rep.name}</span>
                       </div>
                     </td>
-                    {(['dials', 'conv', 'vm', 'disc', 'demo', 'closed'] as const).map((k) => (
-                      <td key={k} className={`mono px-3.5 py-3 text-right font-semibold ${k === 'closed' ? 'text-mint' : 'text-ink-1'}`}>{a[k]}</td>
+                    {(['dials', 'conv', 'vm', 'disc', 'demo'] as const).map((k) => (
+                      <td key={k} className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{a[k]}</td>
                     ))}
-                    {[pct(a.conv, a.dials), pct(a.disc, a.conv), pct(a.demo, a.disc), pct(a.closed, a.demo)].map((v, i) => (
+                    <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{repClosed}</td>
+                    {[pct(a.conv, a.dials), pct(a.disc, a.conv), pct(a.demo, a.disc), pct(repClosed, a.demo)].map((v, i) => (
                       <td key={i} className="mono px-3.5 py-3 text-right text-ink-2">{isNaN(v) ? '—' : v.toFixed(0) + '%'}</td>
                     ))}
                   </tr>
@@ -242,7 +321,7 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
         </div>
       </Card>
 
-      {/* Client breakdown table */}
+      {/* Client breakdown */}
       <Card padding={0}>
         <div className="px-5 py-4 border-b border-line">
           <div className="text-[13px] font-semibold">Client breakdown</div>
@@ -251,7 +330,7 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
           <table className="w-full border-collapse text-[12.5px]">
             <thead>
               <tr className="text-ink-3 text-[10.5px] uppercase tracking-[0.5px]">
-                {['Client', 'Type', 'MRR', 'ARR', 'Rep', 'Date'].map((h) => (
+                {['Client', 'MRR', 'ARR', 'Rep', 'Date'].map((h) => (
                   <th key={h} className={`${h === 'Client' ? 'text-left' : 'text-right'} px-3.5 py-3 font-semibold border-b border-line`}>{h}</th>
                 ))}
               </tr>
@@ -259,7 +338,6 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
             <tbody>
               {clients.map((c) => {
                 const owner = reps.find((r) => r.id === c.owner_id)
-                const planColor = c.plan === 'Scale' ? '#8B5CF6' : c.plan === 'Growth' ? '#00D4FF' : '#FFB800'
                 return (
                   <tr key={c.id} className="border-b border-[#1A1F30]">
                     <td className="px-3.5 py-3">
@@ -268,9 +346,6 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
                         <span className="font-semibold">{c.name}</span>
                       </div>
                     </td>
-                    <td className="px-3.5 py-3 text-right">
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: planColor, background: planColor + '22' }}>{c.plan}</span>
-                    </td>
                     <td className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{fmtMoney(c.mrr)}</td>
                     <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(c.mrr * 12)}</td>
                     <td className="px-3.5 py-3 text-right text-ink-2">{owner ? owner.name.split(' ')[0] : '—'}</td>
@@ -278,29 +353,9 @@ export function TeamPerformance({ reps, clients, closedDeals, activity, targets,
                   </tr>
                 )
               })}
-              {closedDeals.map((d) => {
-                const rep = reps.find((r) => r.id === d.rep_id)
-                return (
-                  <tr key={d.id} className="border-b border-[#1A1F30]">
-                    <td className="px-3.5 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-mint" />
-                        <span className="font-semibold">{d.company_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-3.5 py-3 text-right">
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-mint" style={{ background: '#00E5A022' }}>New</span>
-                    </td>
-                    <td className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{fmtMoney(d.monthly_price)}</td>
-                    <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(d.monthly_price * 12)}</td>
-                    <td className="px-3.5 py-3 text-right text-ink-2">{rep ? rep.name.split(' ')[0] : '—'}</td>
-                    <td className="mono px-3.5 py-3 text-right text-ink-3">{d.closed_date}</td>
-                  </tr>
-                )
-              })}
-              {clients.length === 0 && closedDeals.length === 0 && (
+              {clients.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3.5 py-8 text-center text-ink-3 text-[12px]">No clients yet</td>
+                  <td colSpan={5} className="px-3.5 py-8 text-center text-ink-3 text-[12px]">No clients yet</td>
                 </tr>
               )}
             </tbody>

@@ -1,14 +1,18 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals } from '@/db/schema'
-import { eq, and, gte, desc } from 'drizzle-orm'
+import { activity_log_entries, closed_deals, clients } from '@/db/schema'
+import { eq, and, gte, lte, desc } from 'drizzle-orm'
 
-export async function getWeeklyCountsAction(weekStartISO: string) {
+export async function getWeeklyCountsAction(startISO: string, endISO?: string) {
   const rows = await db
     .select({ rep_id: activity_log_entries.rep_id, metric_key: activity_log_entries.metric_key })
     .from(activity_log_entries)
-    .where(gte(activity_log_entries.logged_at, weekStartISO + 'T00:00:00+00'))
+    .where(
+      endISO
+        ? and(gte(activity_log_entries.logged_at, startISO + 'T00:00:00+00'), lte(activity_log_entries.logged_at, endISO + 'T23:59:59+00'))
+        : gte(activity_log_entries.logged_at, startISO + 'T00:00:00+00')
+    )
 
   const counts: Record<string, Record<string, number>> = {}
   rows.forEach(({ rep_id, metric_key }) => {
@@ -72,6 +76,18 @@ export async function logClosedDealAction(data: {
     })
     .returning()
 
+  const [client] = await db
+    .insert(clients)
+    .values({
+      name: data.companyName,
+      mrr: data.monthlyPrice,
+      since_date: data.closedDate,
+      owner_id: data.repId,
+      plan: 'Starter',
+      status: 'active',
+    })
+    .returning()
+
   const [entry] = await db
     .insert(activity_log_entries)
     .values({
@@ -83,5 +99,5 @@ export async function logClosedDealAction(data: {
     })
     .returning()
 
-  return { deal, entry }
+  return { deal, client, entry }
 }
