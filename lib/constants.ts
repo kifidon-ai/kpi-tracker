@@ -14,7 +14,6 @@ export const METRIC_GROUPS: MetricGroup[] = [
     items: [
       { k: 'disc', label: 'Discovery booked', short: 'Disc booked', icon: 'calendar', color: '#FFB800' },
       { k: 'demo', label: 'Demo booked',      short: 'Demo booked', icon: 'present',  color: '#FF3D9A' },
-      { k: 'onb',  label: 'Onboarding set',   short: 'Onboarding',  icon: 'check',    color: '#00E5A0' },
     ],
   },
   {
@@ -36,4 +35,4 @@ export const METRIC_GROUPS: MetricGroup[] = [
 ]
 
 export const ALL_METRICS = METRIC_GROUPS.flatMap((g) => g.items)
-export const KEY_METRICS = ['dials', 'conv', 'disc', 'demo', 'onb', 'closed']
+export const KEY_METRICS = ['dials', 'conv', 'disc', 'demo', 'closed']

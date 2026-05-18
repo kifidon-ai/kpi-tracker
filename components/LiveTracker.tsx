@@ -16,8 +16,8 @@ interface LiveTrackerProps {
   dailyTarget: Target | null
 }
 
-const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5, onb: 2 }
-const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo', 'onb'] as const
+const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
+const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
 export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps) {
   const supabase = createClient()

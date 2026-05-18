@@ -93,7 +93,7 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
           <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
           <Card><KPI label="Discovery Booked" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
           <Card><KPI label="Demo Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
-          <Card><KPI label="Onboarding Set" value={totals.onb} target={tgt?.onb} color="#00E5A0" formatter={fmtNum} delta={delta(totals.onb, prevTotals.onb)} /></Card>
+          <Card><KPI label="Closed Won" value={totals.closed} target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(totals.closed, prevTotals.closed)} /></Card>
           <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
         </div>
 
@@ -117,7 +117,7 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
           <SectionTitle right={
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#8B95B2' }}>
-                {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FF3D9A', l: 'Demos' }, { c: '#00E5A0', l: 'Onb' }].map((x) => (
+                {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FF3D9A', l: 'Demos' }].map((x) => (
                   <span key={x.l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: x.c }} />{x.l}
                   </span>
@@ -136,11 +136,10 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
               { name: 'Dials', color: '#00D4FF', data: trendData.map((w) => w.dials) },
               { name: 'Conv', color: '#8B5CF6', data: trendData.map((w) => w.conv) },
               { name: 'Demos', color: '#FF3D9A', data: trendData.map((w) => w.demo * 8) },
-              { name: 'Onb', color: '#00E5A0', data: trendData.map((w) => w.onb * 14) },
             ]}
             height={240}
           />
-          <div style={{ fontSize: 10, color: '#5A6685', marginTop: 8, fontFamily: 'JetBrains Mono, monospace' }}>* demos and onboarding plotted at scale for trend visibility</div>
+          <div style={{ fontSize: 10, color: '#5A6685', marginTop: 8, fontFamily: 'JetBrains Mono, monospace' }}>* demos plotted at 8× scale for trend visibility</div>
         </Card>
 
         <Card>
@@ -150,34 +149,10 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
             { label: 'Conversations', value: totals.conv,   color: '#8B5CF6' },
             { label: 'Discovery',     value: totals.disc,   color: '#FFB800' },
             { label: 'Demo booked',   value: totals.demo,   color: '#FF3D9A' },
-            { label: 'Onboarding',    value: totals.onb,    color: '#00E5A0' },
-            { label: 'Closed won',    value: totals.closed, color: '#3B82F6' },
+            { label: 'Closed won',    value: totals.closed, color: '#00E5A0' },
           ]} />
         </Card>
       </div>
-
-      {/* Conversion rings */}
-      <Card>
-        <SectionTitle>Conversion rates · {rangeLabel}</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14 }}>
-          {[
-            { l: 'Dial → Conv',  v: pct(totals.conv,   totals.dials),  c: '#8B5CF6' },
-            { l: 'Conv → Disc',  v: pct(totals.disc,   totals.conv),   c: '#FFB800' },
-            { l: 'Disc → Demo',  v: pct(totals.demo,   totals.disc),   c: '#FF3D9A' },
-            { l: 'Demo → Onb',   v: pct(totals.onb,    totals.demo),   c: '#00E5A0' },
-            { l: 'Onb → Close',  v: pct(totals.closed, totals.onb),    c: '#3B82F6' },
-            { l: 'Dial → Close', v: pct(totals.closed, totals.dials),  c: '#00D4FF' },
-          ].map((x, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Ring value={x.v / 100} target={1} size={68} stroke={7} color={x.c} />
-              <div>
-                <div style={{ fontSize: 11, color: '#8B95B2' }}>{x.l}</div>
-                <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{isNaN(x.v) ? '0.0' : x.v.toFixed(1)}%</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
 
       {/* Rep breakdown table */}
       <Card padding={0}>
@@ -188,7 +163,7 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
               <tr style={{ color: '#5A6685', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {['Rep', 'Dials', 'Conv', 'VM', 'Disc', 'Demo', 'Onb', 'Closed', 'D→C', 'C→Di', 'Di→De', 'De→On', 'On→Cl'].map((h) => (
+                {['Rep', 'Dials', 'Conv', 'VM', 'Disc', 'Demo', 'Closed', 'D→C', 'C→Di', 'Di→De', 'De→Cl'].map((h) => (
                   <th key={h} style={{ textAlign: h === 'Rep' ? 'left' : 'right', padding: '12px 14px', fontWeight: 600, borderBottom: '1px solid #1E2538' }}>{h}</th>
                 ))}
               </tr>
@@ -205,10 +180,10 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
                         <span style={{ fontWeight: 600 }}>{rep.name}</span>
                       </div>
                     </td>
-                    {(['dials', 'conv', 'vm', 'disc', 'demo', 'onb', 'closed'] as const).map((k) => (
-                      <td key={k} className="mono" style={{ padding: '12px 14px', textAlign: 'right', color: (k === 'closed' || k === 'demo') ? '#00E5A0' : '#D8DEEF', fontWeight: 600 }}>{a[k]}</td>
+                    {(['dials', 'conv', 'vm', 'disc', 'demo', 'closed'] as const).map((k) => (
+                      <td key={k} className="mono" style={{ padding: '12px 14px', textAlign: 'right', color: k === 'closed' ? '#00E5A0' : '#D8DEEF', fontWeight: 600 }}>{a[k]}</td>
                     ))}
-                    {[pct(a.conv, a.dials), pct(a.disc, a.conv), pct(a.demo, a.disc), pct(a.onb, a.demo), pct(a.closed, a.onb)].map((v, i) => (
+                    {[pct(a.conv, a.dials), pct(a.disc, a.conv), pct(a.demo, a.disc), pct(a.closed, a.demo)].map((v, i) => (
                       <td key={i} className="mono" style={{ padding: '12px 14px', textAlign: 'right', color: '#8B95B2' }}>{isNaN(v) ? '—' : v.toFixed(0) + '%'}</td>
                     ))}
                   </tr>
@@ -218,6 +193,49 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
           </table>
         </div>
       </Card>
+
+      {/* Conversion pipeline */}
+      {(() => {
+        const stages = [
+          { label: 'Dials',      value: totals.dials,  color: '#00D4FF' },
+          { label: 'Conv',       value: totals.conv,   color: '#8B5CF6' },
+          { label: 'Discovery',  value: totals.disc,   color: '#FFB800' },
+          { label: 'Demo',       value: totals.demo,   color: '#FF3D9A' },
+          { label: 'Closed',     value: totals.closed, color: '#00E5A0' },
+        ]
+        return (
+          <Card>
+            <SectionTitle>Conversion pipeline · {rangeLabel}</SectionTitle>
+            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 8 }}>
+              {stages.map((s, i) => (
+                <div key={s.label} style={{ display: 'flex', alignItems: 'center', flex: i < stages.length - 1 ? '1 1 0' : 'none' }}>
+                  {/* Stage node */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: s.color, textTransform: 'uppercase', letterSpacing: 0.8 }}>{s.label}</div>
+                    <div className="mono" style={{ fontSize: 36, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{s.value}</div>
+                    <div style={{ width: 36, height: 3, borderRadius: 2, background: s.color, opacity: 0.7 }} />
+                  </div>
+                  {/* Connector */}
+                  {i < stages.length - 1 && (() => {
+                    const rate = stages[i + 1].value && s.value ? (stages[i + 1].value / s.value * 100) : 0
+                    return (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '0 6px', minWidth: 48 }}>
+                        <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: rate > 0 ? '#8B95B2' : '#3A4460' }}>
+                          {rate.toFixed(0)}%
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 0 }}>
+                          <div style={{ flex: 1, height: 1, background: '#2A3350' }} />
+                          <span style={{ color: '#2A3350', fontSize: 10, lineHeight: 1 }}>▶</span>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )
+      })()}
     </div>
   )
 }
