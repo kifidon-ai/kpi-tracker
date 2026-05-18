@@ -2,7 +2,7 @@ import { cookies } from 'next/headers'
 import { createClient } from '@/utils/supabase/server'
 import { Shell } from '@/components/Shell'
 
-export const revalidate = 0
+export const dynamic = 'force-dynamic'
 
 export default async function Page() {
   const cookieStore = await cookies()
