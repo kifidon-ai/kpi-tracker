@@ -18,6 +18,7 @@ type Range = 'day' | 'week' | 'month' | 'all'
 
 export function TeamPerformance({ reps, activity, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
   const [range, setRange] = useState<Range>('week')
+  const [trendGranularity, setTrendGranularity] = useState<'week' | 'day'>('week')
 
   const tgt = useMemo(() => {
     const period = range === 'day' ? 'daily' : range === 'week' ? 'weekly' : range === 'month' ? 'monthly' : null
@@ -49,6 +50,19 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
     }
     return out
   }, [activity])
+
+  const days = useMemo(() => {
+    const out = []
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0)
+      const dateStr = d.toISOString().slice(0, 10)
+      const rows = activity.filter((r) => r.date === dateStr)
+      out.push({ label: (d.getMonth() + 1) + '/' + d.getDate(), ...aggregate(rows) })
+    }
+    return out
+  }, [activity])
+
+  const trendData = trendGranularity === 'week' ? weeks : days
 
   const delta = (a: number, b: number) => (b ? ((a - b) / b) * 100 : null)
   const rangeLabel = range === 'day' ? 'today' : range === 'week' ? 'this week' : range === 'month' ? 'this month' : 'all time'
@@ -108,21 +122,28 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14 }}>
         <Card>
           <SectionTitle right={
-            <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#8B95B2' }}>
-              {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FF3D9A', l: 'Demos' }, { c: '#00E5A0', l: 'Onb' }].map((x) => (
-                <span key={x.l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: x.c }} />{x.l}
-                </span>
-              ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#8B95B2' }}>
+                {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FF3D9A', l: 'Demos' }, { c: '#00E5A0', l: 'Onb' }].map((x) => (
+                  <span key={x.l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: x.c }} />{x.l}
+                  </span>
+                ))}
+              </div>
+              <Segmented
+                value={trendGranularity}
+                onChange={(v) => setTrendGranularity(v as 'week' | 'day')}
+                options={[{ value: 'week', label: 'Weekly' }, { value: 'day', label: 'Daily' }]}
+              />
             </div>
-          }>Weekly trend · last 6 weeks</SectionTitle>
+          }>{trendGranularity === 'week' ? 'Weekly trend · last 6 weeks' : 'Daily trend · last 30 days'}</SectionTitle>
           <LineChart
-            labels={weeks.map((w) => w.label)}
+            labels={trendData.map((w) => w.label)}
             series={[
-              { name: 'Dials', color: '#00D4FF', data: weeks.map((w) => w.dials) },
-              { name: 'Conv', color: '#8B5CF6', data: weeks.map((w) => w.conv) },
-              { name: 'Demos', color: '#FF3D9A', data: weeks.map((w) => w.demo * 8) },
-              { name: 'Onb', color: '#00E5A0', data: weeks.map((w) => w.onb * 14) },
+              { name: 'Dials', color: '#00D4FF', data: trendData.map((w) => w.dials) },
+              { name: 'Conv', color: '#8B5CF6', data: trendData.map((w) => w.conv) },
+              { name: 'Demos', color: '#FF3D9A', data: trendData.map((w) => w.demo * 8) },
+              { name: 'Onb', color: '#00E5A0', data: trendData.map((w) => w.onb * 14) },
             ]}
             height={240}
           />
