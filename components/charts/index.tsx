@@ -197,6 +197,92 @@ export function Ring({ value, target, size = 120, stroke = 10, color = '#00D4FF'
   )
 }
 
+// --- Speedometer ---
+interface SpeedometerProps {
+  value: number
+  milestones?: number[]
+  max?: number
+  color?: string
+  size?: number
+}
+
+export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 100, color = '#00D4FF', size = 220 }: SpeedometerProps) {
+  const cx = size / 2
+  const r = size * 0.39
+  const sw = 13
+  const cy = r + sw + 10
+  const svgH = cy + 50
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  // value 0 → 180° (left), value max → 0° (right)
+  const mathDeg = (v: number) => 180 - (Math.min(v, max) / max) * 180
+  const pt = (deg: number, radius: number): [number, number] => [
+    cx + radius * Math.cos(toRad(deg)),
+    cy - radius * Math.sin(toRad(deg)),
+  ]
+
+  const clamp = Math.min(value, max)
+  const needleDeg = mathDeg(clamp)
+  const [nx, ny] = pt(needleDeg, r - sw)
+
+  // color zones
+  const zones = [
+    { from: 0, to: 20, c: '#FF546888' },
+    { from: 20, to: 40, c: '#FFB80088' },
+    { from: 40, to: 80, c: '#00D4FF88' },
+    { from: 80, to: 100, c: '#00E5A088' },
+  ]
+
+  const arcSegment = (fromV: number, toV: number, radius: number, strokeColor: string) => {
+    const a1 = mathDeg(fromV)
+    const a2 = mathDeg(toV)
+    const [sx, sy] = pt(a1, radius)
+    const [ex, ey] = pt(a2, radius)
+    return (
+      <path
+        key={fromV}
+        d={`M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${radius} ${radius} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={sw}
+        strokeLinecap="butt"
+      />
+    )
+  }
+
+  return (
+    <svg width={size} height={svgH} viewBox={`0 0 ${size} ${svgH}`} style={{ display: 'block', margin: '0 auto' }}>
+      {/* Background track */}
+      <path
+        d={`M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 0 1 ${(cx + r).toFixed(2)} ${cy.toFixed(2)}`}
+        fill="none" stroke="#1E2538" strokeWidth={sw} strokeLinecap="round"
+      />
+      {/* Color zones */}
+      {zones.map((z) => arcSegment(z.from, z.to, r, z.c))}
+      {/* Milestone ticks and labels */}
+      {milestones.map((m) => {
+        const deg = mathDeg(m)
+        const [ix, iy] = pt(deg, r - sw / 2 - 3)
+        const [ox, oy] = pt(deg, r + sw / 2 + 3)
+        const [lx, ly] = pt(deg, r + sw / 2 + 16)
+        return (
+          <g key={m}>
+            <line x1={ix.toFixed(1)} y1={iy.toFixed(1)} x2={ox.toFixed(1)} y2={oy.toFixed(1)} stroke="#fff" strokeWidth="2" />
+            <text x={lx.toFixed(1)} y={ly.toFixed(1)} fill="#8B95B2" fontSize="10" textAnchor="middle" fontFamily="JetBrains Mono">{m}</text>
+          </g>
+        )
+      })}
+      {/* Needle */}
+      <line x1={cx.toFixed(1)} y1={cy.toFixed(1)} x2={nx.toFixed(1)} y2={ny.toFixed(1)} stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={color} />
+      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="3" fill="#0A0E1A" />
+      {/* Value */}
+      <text x={cx} y={cy + 22} fill="#fff" fontSize="30" fontWeight="800" textAnchor="middle" fontFamily="JetBrains Mono">{value}</text>
+      <text x={cx} y={cy + 38} fill="#5A6685" fontSize="10" textAnchor="middle">active clients</text>
+    </svg>
+  )
+}
+
 // --- FunnelBar ---
 interface FunnelStage {
   label: string

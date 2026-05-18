@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import type { Rep, ActivityDaily, Target } from '@/lib/types'
 import { aggregate, inRange, fmtMoney, fmtNum, pct } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI, TargetBar } from './ui/primitives'
-import { LineChart, FunnelBar, Ring, Sparkline } from './charts'
+import { LineChart, FunnelBar, Ring, Sparkline, Speedometer } from './charts'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -71,16 +71,15 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
         />
       </div>
 
-      {/* Hero row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: 14 }}>
+      {/* Hero row: ARR + Active clients speedometer */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14 }}>
         <Card style={{ background: 'linear-gradient(135deg, #1A2B4F 0%, #131826 60%)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Monthly Recurring Revenue</div>
-              <div className="mono" style={{ fontSize: 44, fontWeight: 800, color: '#fff', letterSpacing: -1, marginTop: 4, lineHeight: 1 }}>{fmtMoney(initialMrr)}</div>
+              <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Annual Recurring Revenue</div>
+              <div className="mono" style={{ fontSize: 44, fontWeight: 800, color: '#fff', letterSpacing: -1, marginTop: 4, lineHeight: 1 }}>{fmtMoney(arr)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
-                <Pill color="#00E5A0">ARR {fmtMoney(arr)}</Pill>
-                <Pill color="#FFB800">{activeClientCount} active clients</Pill>
+                <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -89,13 +88,21 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
             </div>
           </div>
         </Card>
-        <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
-        <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
-        <Card><KPI label="Demos Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
+        <Card style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8, alignSelf: 'flex-start' }}>Active Clients</div>
+          <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} color="#00D4FF" size={200} />
+        </Card>
       </div>
 
+      {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+        <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
+        <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
         <Card><KPI label="Discovery Booked" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
+        <Card><KPI label="Demo Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         <Card><KPI label="Onboarding Set" value={totals.onb} target={tgt?.onb} color="#00E5A0" formatter={fmtNum} delta={delta(totals.onb, prevTotals.onb)} /></Card>
         <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
         <Card><KPI label="Closed Won" value={totals.closed} target={tgt?.closed} color="#3B82F6" formatter={fmtNum} delta={delta(totals.closed, prevTotals.closed)} /></Card>
