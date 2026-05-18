@@ -85,37 +85,30 @@ export function TeamPerformance({ reps, activity, targets, initialMrr, activeCli
         />
       </div>
 
-      {/* Hero row: ARR + Active clients speedometer */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14 }}>
-        <Card style={{ background: 'linear-gradient(135deg, #1A2B4F 0%, #131826 60%)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Annual Recurring Revenue</div>
-              <div className="mono" style={{ fontSize: 44, fontWeight: 800, color: '#fff', letterSpacing: -1, marginTop: 4, lineHeight: 1 }}>{fmtMoney(arr)}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
-                <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <Sparkline data={mrrSparkData} color="#00D4FF" width={150} height={50} />
-              <div style={{ fontSize: 10, color: '#5A6685', marginTop: 4, fontFamily: 'JetBrains Mono, monospace' }}>last 7 weeks</div>
+      {/* Hero row: KPI cards left, speedometer + ARR right */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, alignItems: 'start' }}>
+        {/* Left: 3×2 KPI grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+          <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
+          <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
+          <Card><KPI label="Discovery Booked" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
+          <Card><KPI label="Demo Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
+          <Card><KPI label="Onboarding Set" value={totals.onb} target={tgt?.onb} color="#00E5A0" formatter={fmtNum} delta={delta(totals.onb, prevTotals.onb)} /></Card>
+          <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
+        </div>
+
+        {/* Right: Speedometer + ARR */}
+        <Card style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 20 }}>
+          <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, alignSelf: 'flex-start', marginBottom: 4 }}>Active Clients</div>
+          <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
+          <div style={{ width: '100%', borderTop: '1px solid #1E2538', marginTop: 16, paddingTop: 16 }}>
+            <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Annual Recurring Revenue</div>
+            <div className="mono" style={{ fontSize: 34, fontWeight: 800, color: '#fff', letterSpacing: -0.5, lineHeight: 1 }}>{fmtMoney(arr)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+              <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
             </div>
           </div>
         </Card>
-        <Card style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-          <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4, alignSelf: 'flex-start' }}>Active Clients</div>
-          <Speedometer value={activeClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
-        </Card>
-      </div>
-
-      {/* KPI cards — 3 × 2 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        <Card><KPI label="Dials" value={totals.dials} target={tgt?.dials} color="#00D4FF" formatter={fmtNum} delta={delta(totals.dials, prevTotals.dials)} /></Card>
-        <Card><KPI label="Conversations" value={totals.conv} target={tgt?.conv} color="#8B5CF6" formatter={fmtNum} delta={delta(totals.conv, prevTotals.conv)} /></Card>
-        <Card><KPI label="Discovery Booked" value={totals.disc} target={tgt?.disc} color="#FFB800" formatter={fmtNum} delta={delta(totals.disc, prevTotals.disc)} /></Card>
-        <Card><KPI label="Demo Booked" value={totals.demo} target={tgt?.demo} color="#FF3D9A" formatter={fmtNum} delta={delta(totals.demo, prevTotals.demo)} /></Card>
-        <Card><KPI label="Onboarding Set" value={totals.onb} target={tgt?.onb} color="#00E5A0" formatter={fmtNum} delta={delta(totals.onb, prevTotals.onb)} /></Card>
-        <Card><KPI label="Voicemails" value={totals.vm} color="#5A6685" formatter={fmtNum} delta={delta(totals.vm, prevTotals.vm)} /></Card>
       </div>
 
       {/* Trend + Funnel */}

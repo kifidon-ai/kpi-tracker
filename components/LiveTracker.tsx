@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import type { Rep, Client, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
@@ -16,6 +16,9 @@ interface LiveTrackerProps {
   dailyTarget: Target | null
 }
 
+const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5, onb: 2 }
+const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo', 'onb'] as const
+
 export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps) {
   const supabase = createClient()
   const [activeRep, setActiveRep] = useState<string>(reps[0]?.id ?? 'team')
@@ -23,19 +26,26 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
   const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
   const [now, setNow] = useState(new Date())
 
+  // Monday of the current week (ISO date string)
+  const weekStartISO = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1))
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString().slice(0, 10)
+  }, [])
+
   // tick relative timestamps every minute
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
 
-  // load today's logged counts from Supabase on mount
+  // load this week's logged counts from Supabase on mount
   useEffect(() => {
-    const todayStr = new Date().toISOString().slice(0, 10)
     supabase
       .from('activity_log_entries')
       .select('rep_id, metric_key')
-      .gte('logged_at', todayStr + 'T00:00:00')
+      .gte('logged_at', weekStartISO + 'T00:00:00')
       .then(({ data }) => {
         if (!data) return
         const counts: CountsByRep = {}
@@ -77,12 +87,9 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
       }, {})
     : (countsByRep[activeRep] ?? {})
 
-  const todayTargets = dailyTarget ?? { dials: 100, conv: 20, vm: 15, disc: 5, demo: 5, onb: 2, closed: 1 } as any
-  const teamTargets = ALL_METRICS.reduce<Record<string, number>>((a, m) => {
-    a[m.k] = ((todayTargets as any)[m.k] ?? 0) * reps.length
-    return a
-  }, {})
-  const activeTargets = isTeam ? teamTargets : (todayTargets as any)
+  const weeklyTargets: Record<string, number> = isTeam
+    ? Object.fromEntries(Object.entries(WEEKLY_TARGETS).map(([k, v]) => [k, v * reps.length]))
+    : { ...WEEKLY_TARGETS }
 
   const logActivity = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
@@ -123,13 +130,12 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current - 1 },
     }))
 
-    const todayStr = new Date().toISOString().slice(0, 10)
     const { data: entries } = await supabase
       .from('activity_log_entries')
       .select('id')
       .eq('rep_id', activeRep)
       .eq('metric_key', metricKey)
-      .gte('logged_at', todayStr + 'T00:00:00')
+      .gte('logged_at', weekStartISO + 'T00:00:00')
       .order('logged_at', { ascending: false })
       .limit(1)
 
@@ -212,14 +218,14 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
 
       {/* Key metric rings */}
       <Card>
-        <SectionTitle right={<Pill color="#5A6685">{isTeam ? 'team · today' : 'today'}</Pill>}>
+        <SectionTitle right={<Pill color="#5A6685">{isTeam ? 'team · this week' : 'this week'}</Pill>}>
           Key metrics vs target
         </SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14 }}>
-          {KEY_METRICS.map((k) => {
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
+          {WEEKLY_KEY_METRICS.map((k) => {
             const def = ALL_METRICS.find((m) => m.k === k)!
             const v = (counts[k] as number) ?? 0
-            const t = (activeTargets[k] as number) ?? 1
+            const t = weeklyTargets[k] ?? 1
             return (
               <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '8px 4px' }}>
                 <Ring value={v} target={t} color={def.color} size={120} stroke={10} label={def.short} />
@@ -264,7 +270,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget }: LiveTrackerProps
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                   {group.items.map((def) => {
                     const v = (counts[def.k] as number) ?? 0
-                    const t = (activeTargets as any)[def.k]
+                    const t = weeklyTargets[def.k]
                     return (
                       <LogTile
                         key={def.k}
