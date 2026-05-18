@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation'
 const ALLOWED_DOMAIN = 'stepscale.ai'
 
 export default function LoginPage() {
-  const supabase = createClient()
   const router = useRouter()
 
   const [mode, setMode] = useState<'login' | 'signup'>('login')
@@ -34,6 +33,7 @@ export default function LoginPage() {
 
     setLoading(true)
     try {
+      const supabase = createClient()
       if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) { setError(error.message); return }
