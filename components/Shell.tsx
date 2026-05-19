@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target } from '@/lib/types'
+
 import { fmtMoney } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { LiveTracker } from './LiveTracker'
 import { TeamPerformance } from './TeamPerformance'
 import { createClient } from '@/utils/supabase/client'
+import { getActivityDailyAction } from '@/app/actions'
 
 interface ShellProps {
   reps: Rep[]
@@ -19,7 +21,7 @@ interface ShellProps {
 
 type Tab = 'live' | 'team'
 
-export function Shell({ reps, clients: initialClients, activity, feed, targets }: ShellProps) {
+export function Shell({ reps, clients: initialClients, activity: initialActivity, feed, targets }: ShellProps) {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('ss-tab')
@@ -33,13 +35,29 @@ export function Shell({ reps, clients: initialClients, activity, feed, targets }
     localStorage.setItem('ss-tab', t)
   }
   const [clients, setClients] = useState<Client[]>(initialClients)
+  const [activity, setActivity] = useState<ActivityDaily[]>(initialActivity)
   const router = useRouter()
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      getActivityDailyAction().then(setActivity)
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   const mrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
   const activeClientCount = clients.filter((c) => c.status === 'active').length
 
   function handleDealClosed(client: Client) {
     setClients((prev) => [client, ...prev])
+  }
+
+  function handleActivityUpdated(row: ActivityDaily) {
+    setActivity((prev) => {
+      const idx = prev.findIndex((r) => r.rep_id === row.rep_id && r.date === row.date && r.hour === row.hour)
+      if (idx >= 0) { const next = [...prev]; next[idx] = row; return next }
+      return [...prev, row]
+    })
   }
 
   async function signOut() {
@@ -134,6 +152,7 @@ export function Shell({ reps, clients: initialClients, activity, feed, targets }
             initialFeed={feed}
             dailyTarget={dailyTarget}
             onDealClosed={handleDealClosed}
+            onActivityUpdated={handleActivityUpdated}
           />
         )}
         {tab === 'team' && (

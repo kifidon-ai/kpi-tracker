@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import type { Rep, Client, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
+import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
 import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
@@ -22,12 +22,13 @@ interface LiveTrackerProps {
   initialFeed: ActivityLogEntry[]
   dailyTarget: Target | null
   onDealClosed?: (client: Client) => void
+  onActivityUpdated?: (row: ActivityDaily) => void
 }
 
 const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: LiveTrackerProps) {
+export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed, onActivityUpdated }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(reps[0]?.id ?? 'team')
   const [feed, setFeed] = useState<ActivityLogEntry[]>(initialFeed)
   const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
@@ -120,7 +121,8 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
     }))
 
     try {
-      await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
+      const result = await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
+      if (result.dailyRow) onActivityUpdated?.(result.dailyRow)
     } catch {
       setCountsByRep((prev) => ({
         ...prev,
@@ -147,10 +149,11 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed }: Li
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
       }))
-    } else if (result.id) {
-      setFeed((f) => f.filter((e) => e.id !== result.id))
+    } else {
+      if (result.id) setFeed((f) => f.filter((e) => e.id !== result.id))
+      if (result.dailyRow) onActivityUpdated?.(result.dailyRow)
     }
-  }, [isTeam, rep, activeRep, countsByRep, weekStartISO])
+  }, [isTeam, rep, activeRep, countsByRep, weekStartISO, onActivityUpdated])
 
   const logClosedDeal = useCallback(async (data: { companyName: string; monthlyPrice: number; closedDate: string }) => {
     setShowClosedModal(false)

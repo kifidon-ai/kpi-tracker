@@ -1,8 +1,12 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals, clients } from '@/db/schema'
-import { eq, and, gte, lte, desc } from 'drizzle-orm'
+import { activity_log_entries, activity_daily, closed_deals, clients } from '@/db/schema'
+import { eq, and, gte, lte, desc, sql } from 'drizzle-orm'
+
+export async function getActivityDailyAction() {
+  return db.select().from(activity_daily)
+}
 
 export async function getWeeklyCountsAction(startISO: string, endISO?: string) {
   const rows = await db
@@ -22,6 +26,29 @@ export async function getWeeklyCountsAction(startISO: string, endISO?: string) {
   return counts
 }
 
+// Columns in activity_daily that can be incremented/decremented via log tiles
+const DAILY_COLS = new Set(['dials', 'conv', 'vm', 'disc', 'demo', 'onb', 'closed'])
+
+const incMap: Record<string, unknown> = {
+  dials:  sql`${activity_daily.dials}  + 1`,
+  conv:   sql`${activity_daily.conv}   + 1`,
+  vm:     sql`${activity_daily.vm}     + 1`,
+  disc:   sql`${activity_daily.disc}   + 1`,
+  demo:   sql`${activity_daily.demo}   + 1`,
+  onb:    sql`${activity_daily.onb}    + 1`,
+  closed: sql`${activity_daily.closed} + 1`,
+}
+
+const decMap: Record<string, unknown> = {
+  dials:  sql`GREATEST(0, ${activity_daily.dials}  - 1)`,
+  conv:   sql`GREATEST(0, ${activity_daily.conv}   - 1)`,
+  vm:     sql`GREATEST(0, ${activity_daily.vm}     - 1)`,
+  disc:   sql`GREATEST(0, ${activity_daily.disc}   - 1)`,
+  demo:   sql`GREATEST(0, ${activity_daily.demo}   - 1)`,
+  onb:    sql`GREATEST(0, ${activity_daily.onb}    - 1)`,
+  closed: sql`GREATEST(0, ${activity_daily.closed} - 1)`,
+}
+
 export async function logActivityAction(
   repId: string,
   metricKey: string,
@@ -29,11 +56,34 @@ export async function logActivityAction(
   icon: string,
   color: string,
 ) {
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10)
+  const hour = now.getUTCHours()
+
   const [entry] = await db
     .insert(activity_log_entries)
     .values({ rep_id: repId, metric_key: metricKey, label, icon, color })
     .returning()
-  return entry
+
+  let dailyRow = null
+  if (DAILY_COLS.has(metricKey)) {
+    const base: Record<string, unknown> = {
+      rep_id: repId, date: dateStr, hour,
+      dials: 0, conv: 0, vm: 0, disc: 0, demo: 0, onb: 0, closed: 0,
+    }
+    base[metricKey] = 1
+    ;[dailyRow] = await db
+      .insert(activity_daily)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .values(base as any)
+      .onConflictDoUpdate({
+        target: [activity_daily.rep_id, activity_daily.date, activity_daily.hour],
+        set: { [metricKey]: incMap[metricKey] },
+      })
+      .returning()
+  }
+
+  return { entry, dailyRow }
 }
 
 export async function decrementActivityAction(
@@ -42,7 +92,7 @@ export async function decrementActivityAction(
   weekStartISO: string,
 ) {
   const rows = await db
-    .select({ id: activity_log_entries.id })
+    .select({ id: activity_log_entries.id, logged_at: activity_log_entries.logged_at })
     .from(activity_log_entries)
     .where(
       and(
@@ -54,10 +104,27 @@ export async function decrementActivityAction(
     .orderBy(desc(activity_log_entries.logged_at))
     .limit(1)
 
-  if (!rows.length) return { deleted: false, id: null }
+  if (!rows.length) return { deleted: false, id: null, dailyRow: null }
 
   await db.delete(activity_log_entries).where(eq(activity_log_entries.id, rows[0].id))
-  return { deleted: true, id: rows[0].id }
+
+  let dailyRow = null
+  if (DAILY_COLS.has(metricKey)) {
+    const t = new Date(rows[0].logged_at)
+    const dateStr = t.toISOString().slice(0, 10)
+    const hour = t.getUTCHours()
+    ;[dailyRow] = await db
+      .update(activity_daily)
+      .set({ [metricKey]: decMap[metricKey] })
+      .where(and(
+        eq(activity_daily.rep_id, repId),
+        eq(activity_daily.date, dateStr),
+        eq(activity_daily.hour, hour),
+      ))
+      .returning()
+  }
+
+  return { deleted: true, id: rows[0].id, dailyRow }
 }
 
 export async function logClosedDealAction(data: {
