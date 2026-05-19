@@ -68,21 +68,22 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed, onAc
     getWeeklyCountsAction(startISO, endISO).then(setCountsByRep)
   }, [startISO, endISO])
 
-  // realtime subscription: new log entries appear in feed (Supabase Realtime only)
+  // Poll counts every 3 s so other reps' activity shows without needing Realtime
+  useEffect(() => {
+    const id = setInterval(() => {
+      getWeeklyCountsAction(startISO, endISO).then(setCountsByRep)
+    }, 3000)
+    return () => clearInterval(id)
+  }, [startISO, endISO])
+
+  // Realtime: catches other reps' entries for the feed; deduplicates entries we already added manually
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
       .channel('activity_log_entries')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log_entries' }, (payload) => {
         const entry = payload.new as ActivityLogEntry
-        setFeed((f) => [entry, ...f].slice(0, 60))
-        setCountsByRep((prev) => ({
-          ...prev,
-          [entry.rep_id]: {
-            ...(prev[entry.rep_id] ?? {}),
-            [entry.metric_key]: ((prev[entry.rep_id] ?? {})[entry.metric_key] ?? 0) + 1,
-          },
-        }))
+        setFeed((f) => f.some((e) => e.id === entry.id) ? f : [entry, ...f].slice(0, 60))
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -122,6 +123,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed, onAc
 
     try {
       const result = await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
+      setFeed((f) => f.some((e) => e.id === result.entry.id) ? f : [result.entry, ...f].slice(0, 60))
       if (result.dailyRow) onActivityUpdated?.(result.dailyRow)
     } catch {
       setCountsByRep((prev) => ({
@@ -129,7 +131,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed, onAc
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 1) - 1) },
       }))
     }
-  }, [isTeam, rep, activeRep])
+  }, [isTeam, rep, activeRep, onActivityUpdated])
 
   const decrement = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
