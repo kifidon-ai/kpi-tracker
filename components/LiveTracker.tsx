@@ -34,7 +34,7 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed, onAc
   const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
   const [now, setNow] = useState(new Date())
   const [showClosedModal, setShowClosedModal] = useState(false)
-  const [range, setRange] = useState<LiveRange>('week')
+  const [range, setRange] = useState<LiveRange>('day')
   const [offset, setOffset] = useState(0)
 
   const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
