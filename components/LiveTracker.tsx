@@ -21,6 +21,7 @@ interface LiveTrackerProps {
   reps: Rep[]
   initialFeed: ActivityLogEntry[]
   dailyTarget: Target | null
+  defaultRepId?: string
   onDealClosed?: (client: Client) => void
   onActivityUpdated?: (row: ActivityDaily) => void
 }
@@ -28,8 +29,13 @@ interface LiveTrackerProps {
 const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, initialFeed, dailyTarget, onDealClosed, onActivityUpdated }: LiveTrackerProps) {
-  const [activeRep, setActiveRep] = useState<string>(reps[0]?.id ?? 'team')
+export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDealClosed, onActivityUpdated }: LiveTrackerProps) {
+  const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? reps[0]?.id ?? 'team')
+
+  useEffect(() => {
+    if (defaultRepId) setActiveRep(defaultRepId)
+  }, [defaultRepId])
+
   const [feed, setFeed] = useState<ActivityLogEntry[]>(initialFeed)
   const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
   const [now, setNow] = useState(new Date())

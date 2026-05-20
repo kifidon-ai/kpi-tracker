@@ -22,6 +22,17 @@ interface ShellProps {
 type Tab = 'live' | 'team'
 
 export function Shell({ reps, clients: initialClients, activity: initialActivity, feed, targets }: ShellProps) {
+  const [currentRepId, setCurrentRepId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) return
+      const match = reps.find((r) => r.user_id === data.user!.id)
+      if (match) setCurrentRepId(match.id)
+    })
+  }, [reps])
+
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('ss-tab')
@@ -151,6 +162,7 @@ export function Shell({ reps, clients: initialClients, activity: initialActivity
             reps={reps}
             initialFeed={feed}
             dailyTarget={dailyTarget}
+            defaultRepId={currentRepId ?? undefined}
             onDealClosed={handleDealClosed}
             onActivityUpdated={handleActivityUpdated}
           />
