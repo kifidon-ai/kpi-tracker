@@ -21,6 +21,9 @@ type Tab = 'live' | 'team'
 
 export function Shell({ reps, clients: initialClients, feed: initialFeed, targets }: ShellProps) {
   const [currentRepId, setCurrentRepId] = useState<string | null>(null)
+  const [isSuperUser, setIsSuperUser] = useState(false)
+
+  const SUPERUSER_EMAILS = ['timmy.ifidon@stepscale.ai']
 
   useEffect(() => {
     const supabase = createClient()
@@ -28,6 +31,9 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
       if (!data.user) return
       const match = reps.find((r) => r.user_id === data.user!.id)
       if (match) setCurrentRepId(match.id)
+      if (data.user.email && SUPERUSER_EMAILS.includes(data.user.email)) {
+        setIsSuperUser(true)
+      }
     })
   }, [reps])
 
@@ -166,6 +172,7 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
             feed={feed}
             dailyTarget={targets.find((t) => t.period === 'daily') ?? null}
             defaultRepId={currentRepId ?? undefined}
+            isSuperUser={isSuperUser}
             onDealClosed={handleDealClosed}
           />
         )}

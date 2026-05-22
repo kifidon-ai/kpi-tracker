@@ -32,10 +32,19 @@ export async function logActivityAction(
   label: string,
   icon: string,
   color: string,
+  loggedAt?: string,
 ) {
   const [entry] = await db
     .insert(activity_log_entries)
-    .values({ rep_id: repId, metric_key: metricKey, label, icon, color, delta: 1 })
+    .values({
+      rep_id: repId,
+      metric_key: metricKey,
+      label,
+      icon,
+      color,
+      delta: 1,
+      ...(loggedAt ? { logged_at: loggedAt } : {}),
+    })
     .returning()
   return { entry }
 }

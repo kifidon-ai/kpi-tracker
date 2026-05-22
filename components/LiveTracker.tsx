@@ -21,13 +21,14 @@ interface LiveTrackerProps {
   feed: ActivityLogEntry[]
   dailyTarget: Target | null
   defaultRepId?: string
+  isSuperUser?: boolean
   onDealClosed?: (client: Client) => void
 }
 
 const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, onDealClosed }: LiveTrackerProps) {
+export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? reps[0]?.id ?? 'team')
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, onDealClose
 
   const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
   const isHistorical = offset > 0
+  const canLogHistorical = isSuperUser && isHistorical
   const label = getPeriodLabel(range, offset, bounds)
 
   const startISO = bounds.start.toISOString().slice(0, 10)
@@ -90,15 +92,17 @@ export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, onDealClose
 
   const logActivity = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
+    if (isHistorical && !canLogHistorical) return
     const def = ALL_METRICS.find((m) => m.k === metricKey)
     if (!def) return
+    const loggedAt = canLogHistorical ? `${endISO}T12:00:00.000Z` : undefined
     // Optimistic update
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
     }))
     try {
-      await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
+      await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color, loggedAt)
     } catch {
       // Roll back optimistic update
       setCountsByRep((prev) => ({
@@ -106,7 +110,7 @@ export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, onDealClose
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 0) - 1) },
       }))
     }
-  }, [isTeam, rep, activeRep])
+  }, [isTeam, rep, activeRep, isHistorical, canLogHistorical, endISO])
 
   const decrement = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return

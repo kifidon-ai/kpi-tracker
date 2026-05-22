@@ -153,6 +153,15 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
   const closedCount     = filteredClients.length
   const prevClosedCount = prevClients.length
 
+  const allTimeRepTotals = useMemo(() => {
+    const rt: Record<string, Record<string, number>> = {}
+    for (const e of feed) {
+      if (!rt[e.rep_id]) rt[e.rep_id] = {}
+      rt[e.rep_id][e.metric_key] = (rt[e.rep_id][e.metric_key] ?? 0) + e.delta
+    }
+    return rt
+  }, [feed])
+
   const periodClientCount = useMemo(() => {
     if (!bounds) return clients.filter((c) => c.since_date).length
     const today = new Date()
@@ -534,9 +543,9 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
                 const discRate = conv  ? disc   / conv  * 100 : 0
                 const demoRate = disc  ? demo   / disc  * 100 : 0
                 const winRate  = demo  ? closed / demo  * 100 : 0
-                const hasData  = dials + conv + vm + disc + demo + closed > 0
+                if (dials + conv + vm + disc + demo + closed === 0) return null
                 return (
-                  <tr key={rep.id} className="border-b border-[#1A1F30]" style={{ opacity: hasData ? 1 : 0.4 }}>
+                  <tr key={rep.id} className="border-b border-[#1A1F30]">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
                         <div
@@ -580,6 +589,76 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
               )}
             </tbody>
           </table>
+        </div>
+      </Card>
+
+      {/* Disc → Demo + Demo → Closed ratio per rep */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <SectionTitle>Conversion rates · per rep</SectionTitle>
+          <span className="text-[10px] text-ink-3">all time</span>
+        </div>
+        {/* column headers */}
+        <div className="flex items-center gap-3 mb-2 pl-[88px]">
+          <div className="flex-1 text-[10px] font-semibold uppercase tracking-[0.6px] text-[#FFB800]">Disc Att → Demo</div>
+          <div className="flex-1 text-[10px] font-semibold uppercase tracking-[0.6px] text-[#FF3D9A]">Demo Att → Closed</div>
+        </div>
+        <div className="flex flex-col gap-4">
+          {(() => {
+            const rows = reps
+              .map((rep) => ({
+                rep,
+                discAtt:  allTimeRepTotals[rep.id]?.disc_att  ?? 0,
+                demo:     allTimeRepTotals[rep.id]?.demo      ?? 0,
+                demoAtt:  allTimeRepTotals[rep.id]?.demo_att  ?? 0,
+                closed:   allTimeRepTotals[rep.id]?.closed    ?? 0,
+              }))
+              .filter(({ discAtt, demo, demoAtt, closed }) => discAtt + demo + demoAtt + closed > 0)
+              .sort((a, b) => b.discAtt - a.discAtt)
+
+            function ratioColor(r: number) {
+              return r >= 50 ? '#00E5A0' : r >= 25 ? '#FFB800' : '#FF5468'
+            }
+
+            return rows.map(({ rep, discAtt, demo, demoAtt, closed }) => {
+              const r1 = discAtt > 0 ? (demo    / discAtt) * 100 : 0
+              const r2 = demoAtt > 0 ? (closed  / demoAtt) * 100 : 0
+              return (
+                <div key={rep.id} className="flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0" style={{ background: rep.color + '28', color: rep.color }}>
+                    {rep.initials}
+                  </div>
+                  <div className="mono text-[11px] font-semibold w-14 shrink-0 truncate">{rep.name.split(' ')[0]}</div>
+
+                  {/* Disc Att → Demo */}
+                  <div className="flex-1 flex items-center gap-2">
+                    <div className="flex-1 h-[12px] bg-[#FF5468]/30 rounded overflow-hidden">
+                      <div className="h-full rounded-l transition-all duration-500" style={{ width: discAtt > 0 ? `${Math.min(r1, 100)}%` : '0%', background: '#00E5A0' }} />
+                    </div>
+                    <div className="w-[58px] shrink-0 text-right">
+                      <span className="mono text-[14px] font-extrabold" style={{ color: discAtt > 0 ? ratioColor(r1) : '#3A4460' }}>
+                        {discAtt > 0 ? `${r1.toFixed(0)}%` : '—'}
+                      </span>
+                      {discAtt > 0 && <div className="mono text-[9px] text-ink-3">{demo}/{discAtt}</div>}
+                    </div>
+                  </div>
+
+                  {/* Demo Att → Closed */}
+                  <div className="flex-1 flex items-center gap-2">
+                    <div className="flex-1 h-[12px] bg-[#FF5468]/30 rounded overflow-hidden">
+                      <div className="h-full rounded-l transition-all duration-500" style={{ width: demoAtt > 0 ? `${Math.min(r2, 100)}%` : '0%', background: '#FF3D9A' }} />
+                    </div>
+                    <div className="w-[58px] shrink-0 text-right">
+                      <span className="mono text-[14px] font-extrabold" style={{ color: demoAtt > 0 ? ratioColor(r2) : '#3A4460' }}>
+                        {demoAtt > 0 ? `${r2.toFixed(0)}%` : '—'}
+                      </span>
+                      {demoAtt > 0 && <div className="mono text-[9px] text-ink-3">{closed}/{demoAtt}</div>}
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          })()}
         </div>
       </Card>
 
