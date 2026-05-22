@@ -89,6 +89,19 @@ export async function getTrendAction(granularity: 'week' | 'day') {
   return rows
 }
 
+export async function getDiscByHourAction() {
+  const rows = await db
+    .select({
+      hour:  sql<number>`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`,
+      total: sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
+    })
+    .from(activity_log_entries)
+    .where(eq(activity_log_entries.metric_key, 'disc'))
+    .groupBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
+    .orderBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
+  return rows
+}
+
 export async function logClosedDealAction(data: {
   repId: string
   companyName: string

@@ -5,7 +5,7 @@ import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 import { fmtMoney, fmtNum, pct } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
 import { LineChart, FunnelBar, Speedometer, ArrGrowthChart } from './charts'
-import { getActivityCountsAction, getTrendAction } from '@/app/actions'
+import { getActivityCountsAction, getTrendAction, getDiscByHourAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -84,6 +84,7 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
   const [prevTotals, setPrevTotals] = useState<Record<string, number>>({})
   const [repTotals, setRepTotals]   = useState<Record<string, Record<string, number>>>({})
   const [trendRows, setTrendRows]   = useState<{ date: string; metric_key: string; total: number }[]>([])
+  const [discByHour, setDiscByHour] = useState<{ hour: number; total: number }[]>([])
 
   function handleRangeChange(v: string) {
     setRange(v as Range)
@@ -152,7 +153,6 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
   const closedCount     = filteredClients.length
   const prevClosedCount = prevClients.length
 
-  // Cumulative clients up to the end of the selected period (not just new ones in that period)
   const periodClientCount = useMemo(() => {
     if (!bounds) return clients.filter((c) => c.since_date).length
     const today = new Date()
@@ -165,6 +165,10 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
   useEffect(() => {
     getTrendAction(trendGranularity).then(setTrendRows)
   }, [trendGranularity])
+
+  useEffect(() => {
+    getDiscByHourAction().then(setDiscByHour)
+  }, [])
 
   // Trend charts: aggregated server-side, bucketed here
   const weeks = useMemo(() => {
@@ -578,6 +582,82 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
           </table>
         </div>
       </Card>
+
+      {/* Discovery by hour */}
+      {(() => {
+        const HOURS = Array.from({ length: 14 }, (_, i) => i + 7) // 7am–8pm
+        const hourData = HOURS.map((h) => ({
+          h,
+          total: discByHour.find((d) => d.hour === h)?.total ?? 0,
+        }))
+        const peak = hourData.reduce((best, d) => d.total > best.total ? d : best, hourData[0])
+        const maxVal = Math.max(...hourData.map((d) => d.total), 1)
+
+        const fmtHour = (h: number) =>
+          h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`
+
+        return (
+          <Card>
+            <SectionTitle right={
+              <span className="text-[10px] text-ink-3 font-normal normal-case tracking-normal">all time · ET</span>
+            }>Discovery bookings by hour</SectionTitle>
+
+            {discByHour.length === 0 ? (
+              <div className="flex items-center justify-center h-44 text-ink-3 text-[12px]">No discovery data yet</div>
+            ) : (
+              <div className="mt-4">
+                <div className="flex items-end gap-[6px] h-44 px-2">
+                  {hourData.map(({ h, total }) => {
+                    const isPeak = h === peak.h && peak.total > 0
+                    const barH = total ? Math.max((total / maxVal) * 100, 3) : 0
+                    return (
+                      <div key={h} className="flex-1 flex flex-col items-center gap-1.5 group">
+                        <div className="relative w-full flex flex-col items-center justify-end" style={{ height: 160 }}>
+                          {total > 0 && (
+                            <div
+                              className="mono text-[9px] font-bold mb-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              style={{ color: isPeak ? '#00E5A0' : '#FFB800' }}
+                            >
+                              {total}
+                            </div>
+                          )}
+                          <div
+                            className="w-full rounded-t-[3px] transition-all duration-300"
+                            style={{
+                              height: `${barH}%`,
+                              background: isPeak
+                                ? 'linear-gradient(180deg, #00E5A0, #00B87A)'
+                                : total > 0
+                                  ? 'linear-gradient(180deg, #FFB84D, #CC8800)'
+                                  : '#1A2035',
+                              opacity: total > 0 ? 0.9 : 0.3,
+                              minHeight: total > 0 ? 3 : 0,
+                            }}
+                          />
+                        </div>
+                        <div
+                          className="mono text-[8px] leading-none"
+                          style={{ color: isPeak ? '#00E5A0' : '#3A4460' }}
+                        >
+                          {fmtHour(h)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {peak.total > 0 && (
+                  <div className="mt-3 pt-3 border-t border-line flex items-center gap-1.5 text-[11px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-mint shrink-0" />
+                    <span className="text-ink-2">Best time to call:</span>
+                    <span className="mono font-bold text-white">{fmtHour(peak.h)}</span>
+                    <span className="text-ink-3">— {peak.total} disc {peak.total === 1 ? 'booking' : 'bookings'} logged</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+        )
+      })()}
 
       {/* Client breakdown */}
       <Card padding={0}>
