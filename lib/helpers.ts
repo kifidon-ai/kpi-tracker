@@ -1,18 +1,12 @@
-import type { ActivityDaily, Totals } from './types'
+import type { ActivityLogEntry, Totals } from './types'
 
-export function aggregate(rows: ActivityDaily[]): Totals {
-  return rows.reduce(
-    (a, r) => ({
-      dials:  a.dials  + r.dials,
-      conv:   a.conv   + r.conv,
-      vm:     a.vm     + r.vm,
-      disc:   a.disc   + r.disc,
-      demo:   a.demo   + r.demo,
-      onb:    a.onb    + r.onb,
-      closed: a.closed + r.closed,
-    }),
-    { dials: 0, conv: 0, vm: 0, disc: 0, demo: 0, onb: 0, closed: 0 },
-  )
+export function aggregate(entries: ActivityLogEntry[]): Totals {
+  const t: Totals = { dials: 0, conv: 0, vm: 0, disc: 0, demo: 0, onb: 0, closed: 0 }
+  for (const e of entries) {
+    const d = e.delta
+    if (e.metric_key in t) (t as unknown as Record<string, number>)[e.metric_key] += d
+  }
+  return t
 }
 
 export function inRange(dateStr: string, range: string): boolean {

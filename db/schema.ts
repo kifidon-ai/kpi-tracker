@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, doublePrecision, date, timestamp, uuid, unique, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, varchar, integer, doublePrecision, date, timestamp, uuid, index } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 // Use snake_case field names so InferSelectModel matches existing component code
@@ -25,25 +25,6 @@ export const clients = pgTable('clients', {
   created_at: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 })
 
-export const activity_daily = pgTable('activity_daily', {
-  id:     uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  rep_id: text('rep_id').notNull().references(() => reps.id),
-  date:   date('date').notNull(),
-  hour:   integer('hour').notNull().default(0), // 0–23
-  dials:  integer('dials').notNull().default(0),
-  conv:   integer('conv').notNull().default(0),
-  vm:     integer('vm').notNull().default(0),
-  disc:   integer('disc').notNull().default(0),
-  demo:   integer('demo').notNull().default(0),
-  onb:    integer('onb').notNull().default(0),
-  closed: integer('closed').notNull().default(0),
-}, (t) => [
-  unique('activity_daily_rep_date_hour').on(t.rep_id, t.date, t.hour),
-  index('idx_activity_daily_rep_date').on(t.rep_id, t.date),
-  index('idx_activity_daily_date').on(t.date),
-  index('idx_activity_daily_hour').on(t.hour),
-])
-
 export const activity_log_entries = pgTable('activity_log_entries', {
   id:         uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   rep_id:     text('rep_id').notNull().references(() => reps.id),
@@ -51,6 +32,7 @@ export const activity_log_entries = pgTable('activity_log_entries', {
   label:      text('label').notNull(),
   icon:       text('icon').notNull(),
   color:      varchar('color', { length: 12 }).notNull(),
+  delta:      integer('delta').notNull().default(1),
   logged_at:  timestamp('logged_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (t) => [
   index('idx_log_entries_rep').on(t.rep_id),

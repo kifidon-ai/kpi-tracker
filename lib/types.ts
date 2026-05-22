@@ -2,18 +2,16 @@ import type { InferSelectModel } from 'drizzle-orm'
 import type {
   reps,
   clients,
-  activity_daily,
   activity_log_entries,
   targets,
   closed_deals,
 } from '@/db/schema'
 
-export type Rep             = InferSelectModel<typeof reps>
-export type Client          = InferSelectModel<typeof clients>
-export type ActivityDaily   = InferSelectModel<typeof activity_daily>
+export type Rep              = InferSelectModel<typeof reps>
+export type Client           = InferSelectModel<typeof clients>
 export type ActivityLogEntry = InferSelectModel<typeof activity_log_entries>
-export type Target          = InferSelectModel<typeof targets>
-export type ClosedDeal      = InferSelectModel<typeof closed_deals>
+export type Target           = InferSelectModel<typeof targets>
+export type ClosedDeal       = InferSelectModel<typeof closed_deals>
 
 export interface Totals {
   dials:  number

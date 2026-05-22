@@ -1,52 +1,29 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, activity_daily, closed_deals, clients } from '@/db/schema'
+import { activity_log_entries, closed_deals, clients } from '@/db/schema'
 import { eq, and, gte, lte, desc, sql } from 'drizzle-orm'
 
-export async function getActivityDailyAction() {
-  return db.select().from(activity_daily)
-}
-
-export async function getWeeklyCountsAction(startISO: string, endISO?: string) {
+export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
-    .select({ rep_id: activity_log_entries.rep_id, metric_key: activity_log_entries.metric_key })
+    .select({
+      rep_id:     activity_log_entries.rep_id,
+      metric_key: activity_log_entries.metric_key,
+      total:      sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
+    })
     .from(activity_log_entries)
-    .where(
-      endISO
-        ? and(gte(activity_log_entries.logged_at, startISO + 'T00:00:00+00'), lte(activity_log_entries.logged_at, endISO + 'T23:59:59+00'))
-        : gte(activity_log_entries.logged_at, startISO + 'T00:00:00+00')
-    )
+    .where(and(
+      gte(activity_log_entries.logged_at, startISO + 'T00:00:00.000Z'),
+      lte(activity_log_entries.logged_at, endISO + 'T23:59:59.999Z'),
+    ))
+    .groupBy(activity_log_entries.rep_id, activity_log_entries.metric_key)
 
-  const counts: Record<string, Record<string, number>> = {}
-  rows.forEach(({ rep_id, metric_key }) => {
-    if (!counts[rep_id]) counts[rep_id] = {}
-    counts[rep_id][metric_key] = (counts[rep_id][metric_key] ?? 0) + 1
+  const result: Record<string, Record<string, number>> = {}
+  rows.forEach(({ rep_id, metric_key, total }) => {
+    if (!result[rep_id]) result[rep_id] = {}
+    result[rep_id][metric_key] = total ?? 0
   })
-  return counts
-}
-
-// Columns in activity_daily that can be incremented/decremented via log tiles
-const DAILY_COLS = new Set(['dials', 'conv', 'vm', 'disc', 'demo', 'onb', 'closed'])
-
-const incMap: Record<string, unknown> = {
-  dials:  sql`${activity_daily.dials}  + 1`,
-  conv:   sql`${activity_daily.conv}   + 1`,
-  vm:     sql`${activity_daily.vm}     + 1`,
-  disc:   sql`${activity_daily.disc}   + 1`,
-  demo:   sql`${activity_daily.demo}   + 1`,
-  onb:    sql`${activity_daily.onb}    + 1`,
-  closed: sql`${activity_daily.closed} + 1`,
-}
-
-const decMap: Record<string, unknown> = {
-  dials:  sql`GREATEST(0, ${activity_daily.dials}  - 1)`,
-  conv:   sql`GREATEST(0, ${activity_daily.conv}   - 1)`,
-  vm:     sql`GREATEST(0, ${activity_daily.vm}     - 1)`,
-  disc:   sql`GREATEST(0, ${activity_daily.disc}   - 1)`,
-  demo:   sql`GREATEST(0, ${activity_daily.demo}   - 1)`,
-  onb:    sql`GREATEST(0, ${activity_daily.onb}    - 1)`,
-  closed: sql`GREATEST(0, ${activity_daily.closed} - 1)`,
+  return result
 }
 
 export async function logActivityAction(
@@ -56,75 +33,60 @@ export async function logActivityAction(
   icon: string,
   color: string,
 ) {
-  const now = new Date()
-  const dateStr = now.toISOString().slice(0, 10)
-  const hour = now.getUTCHours()
-
   const [entry] = await db
     .insert(activity_log_entries)
-    .values({ rep_id: repId, metric_key: metricKey, label, icon, color })
+    .values({ rep_id: repId, metric_key: metricKey, label, icon, color, delta: 1 })
     .returning()
-
-  let dailyRow = null
-  if (DAILY_COLS.has(metricKey)) {
-    const base: Record<string, unknown> = {
-      rep_id: repId, date: dateStr, hour,
-      dials: 0, conv: 0, vm: 0, disc: 0, demo: 0, onb: 0, closed: 0,
-    }
-    base[metricKey] = 1
-    ;[dailyRow] = await db
-      .insert(activity_daily)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .values(base as any)
-      .onConflictDoUpdate({
-        target: [activity_daily.rep_id, activity_daily.date, activity_daily.hour],
-        set: { [metricKey]: incMap[metricKey] },
-      })
-      .returning()
-  }
-
-  return { entry, dailyRow }
+  return { entry }
 }
 
-export async function decrementActivityAction(
-  repId: string,
-  metricKey: string,
-  weekStartISO: string,
-) {
+export async function decrementActivityAction(repId: string, metricKey: string, periodStartISO: string) {
   const rows = await db
-    .select({ id: activity_log_entries.id, logged_at: activity_log_entries.logged_at })
+    .select()
     .from(activity_log_entries)
-    .where(
-      and(
-        eq(activity_log_entries.rep_id, repId),
-        eq(activity_log_entries.metric_key, metricKey),
-        gte(activity_log_entries.logged_at, weekStartISO + 'T00:00:00+00'),
-      )
-    )
+    .where(and(
+      eq(activity_log_entries.rep_id, repId),
+      eq(activity_log_entries.metric_key, metricKey),
+      gte(activity_log_entries.logged_at, periodStartISO + 'T00:00:00.000Z'),
+    ))
     .orderBy(desc(activity_log_entries.logged_at))
     .limit(1)
 
-  if (!rows.length) return { deleted: false, id: null, dailyRow: null }
+  if (!rows.length) return { deleted: false, id: null }
 
-  await db.delete(activity_log_entries).where(eq(activity_log_entries.id, rows[0].id))
-
-  let dailyRow = null
-  if (DAILY_COLS.has(metricKey)) {
-    const t = new Date(rows[0].logged_at)
-    const dateStr = t.toISOString().slice(0, 10)
-    const hour = t.getUTCHours()
-    ;[dailyRow] = await db
-      .update(activity_daily)
-      .set({ [metricKey]: decMap[metricKey] })
-      .where(and(
-        eq(activity_daily.rep_id, repId),
-        eq(activity_daily.date, dateStr),
-        eq(activity_daily.hour, hour),
-      ))
-      .returning()
+  const row = rows[0]
+  if (row.delta <= 1) {
+    await db.delete(activity_log_entries).where(eq(activity_log_entries.id, row.id))
+    return { deleted: true, id: row.id }
   }
 
-  return { deleted: true, id: rows[0].id, dailyRow }
+  await db
+    .update(activity_log_entries)
+    .set({ delta: row.delta - 1 })
+    .where(eq(activity_log_entries.id, row.id))
+  return { deleted: false, id: null }
+}
+
+export async function getTrendAction(granularity: 'week' | 'day') {
+  const windowDays = granularity === 'week' ? 42 : 30
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - windowDays)
+
+  const rows = await db
+    .select({
+      date:       sql<string>`(${activity_log_entries.logged_at} AT TIME ZONE 'UTC')::date::text`,
+      metric_key: activity_log_entries.metric_key,
+      total:      sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
+    })
+    .from(activity_log_entries)
+    .where(gte(activity_log_entries.logged_at, cutoff.toISOString()))
+    .groupBy(
+      sql`(${activity_log_entries.logged_at} AT TIME ZONE 'UTC')::date::text`,
+      activity_log_entries.metric_key,
+    )
+    .orderBy(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'UTC')::date::text`)
+
+  return rows
 }
 
 export async function logClosedDealAction(data: {
@@ -163,6 +125,7 @@ export async function logClosedDealAction(data: {
       label: `Closed ${data.companyName}`,
       icon: 'trophy',
       color: '#00E5A0',
+      delta: 1,
     })
     .returning()
 

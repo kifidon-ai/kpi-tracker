@@ -59,6 +59,15 @@ async function run() {
       closed = EXCLUDED.closed
   `)
 
+  // 003 — add delta column to activity_log_entries
+  await db.execute(sql`
+    ALTER TABLE activity_log_entries
+    ADD COLUMN IF NOT EXISTS delta integer NOT NULL DEFAULT 1
+  `)
+
+  // 004 — drop activity_daily (all data now lives in activity_log_entries)
+  await db.execute(sql`DROP TABLE IF EXISTS activity_daily CASCADE`)
+
   console.log('Migrations complete')
   process.exit(0)
 }

@@ -2,26 +2,24 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target } from '@/lib/types'
+import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 
 import { fmtMoney } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { LiveTracker } from './LiveTracker'
 import { TeamPerformance } from './TeamPerformance'
 import { createClient } from '@/utils/supabase/client'
-import { getActivityDailyAction } from '@/app/actions'
 
 interface ShellProps {
   reps: Rep[]
   clients: Client[]
-  activity: ActivityDaily[]
   feed: ActivityLogEntry[]
   targets: Target[]
 }
 
 type Tab = 'live' | 'team'
 
-export function Shell({ reps, clients: initialClients, activity: initialActivity, feed, targets }: ShellProps) {
+export function Shell({ reps, clients: initialClients, feed: initialFeed, targets }: ShellProps) {
   const [currentRepId, setCurrentRepId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -45,15 +43,30 @@ export function Shell({ reps, clients: initialClients, activity: initialActivity
     setTab(t)
     localStorage.setItem('ss-tab', t)
   }
+
   const [clients, setClients] = useState<Client[]>(initialClients)
-  const [activity, setActivity] = useState<ActivityDaily[]>(initialActivity)
+  const [feed, setFeed] = useState<ActivityLogEntry[]>(initialFeed)
   const router = useRouter()
 
+  // Realtime: keep feed in sync with DB — single source of truth
   useEffect(() => {
-    const id = setInterval(() => {
-      getActivityDailyAction().then(setActivity)
-    }, 1000)
-    return () => clearInterval(id)
+    const supabase = createClient()
+    const channel = supabase
+      .channel('shell_log_entries')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log_entries' }, (payload) => {
+        const entry = payload.new as ActivityLogEntry
+        setFeed((f) => f.some((e) => e.id === entry.id) ? f : [entry, ...f].slice(0, 1000))
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'activity_log_entries' }, (payload) => {
+        const entry = payload.new as ActivityLogEntry
+        setFeed((f) => f.map((e) => e.id === entry.id ? entry : e))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'activity_log_entries' }, (payload) => {
+        const id = (payload.old as { id: string }).id
+        setFeed((f) => f.filter((e) => e.id !== id))
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   const mrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
@@ -63,22 +76,12 @@ export function Shell({ reps, clients: initialClients, activity: initialActivity
     setClients((prev) => [client, ...prev])
   }
 
-  function handleActivityUpdated(row: ActivityDaily) {
-    setActivity((prev) => {
-      const idx = prev.findIndex((r) => r.rep_id === row.rep_id && r.date === row.date && r.hour === row.hour)
-      if (idx >= 0) { const next = [...prev]; next[idx] = row; return next }
-      return [...prev, row]
-    })
-  }
-
   async function signOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
   }
-
-  const dailyTarget = targets.find((t) => t.period === 'daily') ?? null
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: 'live', label: 'Live tracker',     icon: 'log' },
@@ -160,18 +163,17 @@ export function Shell({ reps, clients: initialClients, activity: initialActivity
         {tab === 'live' && (
           <LiveTracker
             reps={reps}
-            initialFeed={feed}
-            dailyTarget={dailyTarget}
+            feed={feed}
+            dailyTarget={targets.find((t) => t.period === 'daily') ?? null}
             defaultRepId={currentRepId ?? undefined}
             onDealClosed={handleDealClosed}
-            onActivityUpdated={handleActivityUpdated}
           />
         )}
         {tab === 'team' && (
           <TeamPerformance
             reps={reps}
             clients={clients}
-            activity={activity}
+            feed={feed}
             targets={targets}
             initialMrr={mrr}
             activeClientCount={activeClientCount}

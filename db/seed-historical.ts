@@ -1,178 +1,168 @@
 /**
  * Historical activity import for Timmy and Mujeeb.
  * Run with: npm run db:seed-historical
- * Safe to re-run — deletes Mujeeb's hourly rows first, then re-inserts correct data.
+ * Deletes ALL activity_log_entries for both reps, then re-inserts all historical data.
+ * Each hourly row becomes one log entry per non-zero metric with delta = count.
  */
 import { db } from './index'
-import { reps, activity_daily } from './schema'
-import { ilike, eq, gt } from 'drizzle-orm'
-import { sql } from 'drizzle-orm'
+import { reps, activity_log_entries } from './schema'
+import { ilike, eq, and, lte } from 'drizzle-orm'
 
-// Timmy's hourly dials/conv/vm (Apr 8 – May 8)
+const METRIC_INFO: Record<string, { label: string; icon: string; color: string }> = {
+  dials: { label: 'Dial logged',         icon: 'phone',    color: '#00D4FF' },
+  conv:  { label: 'Conversation logged', icon: 'chat',     color: '#8B5CF6' },
+  vm:    { label: 'Voicemail logged',    icon: 'voicemail',color: '#5A6685' },
+  disc:  { label: 'Discovery booked',   icon: 'calendar', color: '#FFB800' },
+  demo:  { label: 'Demo booked',        icon: 'present',  color: '#FF3D9A' },
+}
+
+// Timmy's hourly data (Apr 8 – May 8). disc embedded at the hour it was booked.
 const TIMMY_HOURLY = [
   // Apr 8
-  { date: '2026-04-08', hour: 13, dials: 6,  conv: 3, vm: 0 },
-  { date: '2026-04-08', hour: 14, dials: 7,  conv: 2, vm: 0 },
-  { date: '2026-04-08', hour: 15, dials: 5,  conv: 2, vm: 0 },
-  { date: '2026-04-08', hour: 16, dials: 2,  conv: 0, vm: 0 },
-  { date: '2026-04-08', hour: 17, dials: 5,  conv: 3, vm: 0 },
+  { date: '2026-04-08', hour: 13, dials: 6,  conv: 3, vm: 0, disc: 0 },
+  { date: '2026-04-08', hour: 14, dials: 7,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-04-08', hour: 15, dials: 5,  conv: 2, vm: 0, disc: 2 },
+  { date: '2026-04-08', hour: 16, dials: 2,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-04-08', hour: 17, dials: 5,  conv: 3, vm: 0, disc: 1 },
   // Apr 13
-  { date: '2026-04-13', hour: 12, dials: 1,  conv: 1, vm: 0 },
-  { date: '2026-04-13', hour: 13, dials: 3,  conv: 1, vm: 0 },
-  { date: '2026-04-13', hour: 14, dials: 2,  conv: 1, vm: 0 },
+  { date: '2026-04-13', hour: 12, dials: 1,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-04-13', hour: 13, dials: 3,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-04-13', hour: 14, dials: 2,  conv: 1, vm: 0, disc: 1 },
   // Apr 23
-  { date: '2026-04-23', hour: 14, dials: 2,  conv: 0, vm: 0 },
-  { date: '2026-04-23', hour: 15, dials: 9,  conv: 3, vm: 0 },
-  { date: '2026-04-23', hour: 16, dials: 3,  conv: 1, vm: 0 },
+  { date: '2026-04-23', hour: 14, dials: 2,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-04-23', hour: 15, dials: 9,  conv: 3, vm: 0, disc: 0 },
+  { date: '2026-04-23', hour: 16, dials: 3,  conv: 1, vm: 0, disc: 0 },
   // Apr 24
-  { date: '2026-04-24', hour: 12, dials: 3,  conv: 2, vm: 0 },
-  { date: '2026-04-24', hour: 13, dials: 7,  conv: 1, vm: 0 },
-  { date: '2026-04-24', hour: 14, dials: 5,  conv: 0, vm: 0 },
-  { date: '2026-04-24', hour: 15, dials: 8,  conv: 1, vm: 0 },
+  { date: '2026-04-24', hour: 12, dials: 3,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-04-24', hour: 13, dials: 7,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-04-24', hour: 14, dials: 5,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-04-24', hour: 15, dials: 8,  conv: 1, vm: 0, disc: 0 },
   // Apr 27
-  { date: '2026-04-27', hour: 10, dials: 8,  conv: 1, vm: 2 },
-  { date: '2026-04-27', hour: 11, dials: 3,  conv: 1, vm: 1 },
-  { date: '2026-04-27', hour: 12, dials: 3,  conv: 1, vm: 2 },
-  { date: '2026-04-27', hour: 13, dials: 4,  conv: 0, vm: 2 },
-  { date: '2026-04-27', hour: 15, dials: 6,  conv: 1, vm: 1 },
-  { date: '2026-04-27', hour: 16, dials: 4,  conv: 3, vm: 1 },
-  { date: '2026-04-27', hour: 17, dials: 2,  conv: 2, vm: 0 },
+  { date: '2026-04-27', hour: 10, dials: 8,  conv: 1, vm: 2, disc: 0 },
+  { date: '2026-04-27', hour: 11, dials: 3,  conv: 1, vm: 1, disc: 1 },
+  { date: '2026-04-27', hour: 12, dials: 3,  conv: 1, vm: 2, disc: 0 },
+  { date: '2026-04-27', hour: 13, dials: 4,  conv: 0, vm: 2, disc: 0 },
+  { date: '2026-04-27', hour: 15, dials: 6,  conv: 1, vm: 1, disc: 1 },
+  { date: '2026-04-27', hour: 16, dials: 4,  conv: 3, vm: 1, disc: 0 },
+  { date: '2026-04-27', hour: 17, dials: 2,  conv: 2, vm: 0, disc: 1 },
   // Apr 28
-  { date: '2026-04-28', hour: 10, dials: 3,  conv: 1, vm: 2 },
-  { date: '2026-04-28', hour: 11, dials: 3,  conv: 0, vm: 0 },
-  { date: '2026-04-28', hour: 12, dials: 6,  conv: 0, vm: 4 },
-  { date: '2026-04-28', hour: 13, dials: 4,  conv: 2, vm: 1 },
-  { date: '2026-04-28', hour: 14, dials: 3,  conv: 1, vm: 2 },
-  { date: '2026-04-28', hour: 15, dials: 6,  conv: 0, vm: 3 },
-  { date: '2026-04-28', hour: 16, dials: 3,  conv: 1, vm: 0 },
+  { date: '2026-04-28', hour: 10, dials: 3,  conv: 1, vm: 2, disc: 0 },
+  { date: '2026-04-28', hour: 11, dials: 3,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-04-28', hour: 12, dials: 6,  conv: 0, vm: 4, disc: 0 },
+  { date: '2026-04-28', hour: 13, dials: 4,  conv: 2, vm: 1, disc: 1 },
+  { date: '2026-04-28', hour: 14, dials: 3,  conv: 1, vm: 2, disc: 0 },
+  { date: '2026-04-28', hour: 15, dials: 6,  conv: 0, vm: 3, disc: 0 },
+  { date: '2026-04-28', hour: 16, dials: 3,  conv: 1, vm: 0, disc: 1 },
   // Apr 29
-  { date: '2026-04-29', hour: 14, dials: 3,  conv: 2, vm: 1 },
-  { date: '2026-04-29', hour: 15, dials: 12, conv: 2, vm: 1 },
-  { date: '2026-04-29', hour: 16, dials: 3,  conv: 1, vm: 1 },
-  { date: '2026-04-29', hour: 17, dials: 3,  conv: 0, vm: 0 },
+  { date: '2026-04-29', hour: 14, dials: 3,  conv: 2, vm: 1, disc: 1 },
+  { date: '2026-04-29', hour: 15, dials: 12, conv: 2, vm: 1, disc: 0 },
+  { date: '2026-04-29', hour: 16, dials: 3,  conv: 1, vm: 1, disc: 0 },
+  { date: '2026-04-29', hour: 17, dials: 3,  conv: 0, vm: 0, disc: 0 },
   // Apr 30
-  { date: '2026-04-30', hour: 11, dials: 2,  conv: 2, vm: 0 },
-  { date: '2026-04-30', hour: 12, dials: 1,  conv: 0, vm: 0 },
-  { date: '2026-04-30', hour: 13, dials: 3,  conv: 2, vm: 1 },
-  { date: '2026-04-30', hour: 14, dials: 10, conv: 0, vm: 4 },
-  { date: '2026-04-30', hour: 15, dials: 2,  conv: 1, vm: 0 },
-  { date: '2026-04-30', hour: 16, dials: 8,  conv: 4, vm: 2 },
-  { date: '2026-04-30', hour: 17, dials: 8,  conv: 2, vm: 1 },
+  { date: '2026-04-30', hour: 11, dials: 2,  conv: 2, vm: 0, disc: 1 },
+  { date: '2026-04-30', hour: 12, dials: 1,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-04-30', hour: 13, dials: 3,  conv: 2, vm: 1, disc: 1 },
+  { date: '2026-04-30', hour: 14, dials: 10, conv: 0, vm: 4, disc: 0 },
+  { date: '2026-04-30', hour: 15, dials: 2,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-04-30', hour: 16, dials: 8,  conv: 4, vm: 2, disc: 0 },
+  { date: '2026-04-30', hour: 17, dials: 8,  conv: 2, vm: 1, disc: 0 },
   // May 1
-  { date: '2026-05-01', hour: 10, dials: 4,  conv: 1, vm: 0 },
+  { date: '2026-05-01', hour: 10, dials: 4,  conv: 1, vm: 0, disc: 0 },
   // May 4
-  { date: '2026-05-04', hour: 10, dials: 1,  conv: 1, vm: 0 },
-  { date: '2026-05-04', hour: 12, dials: 1,  conv: 0, vm: 0 },
-  { date: '2026-05-04', hour: 14, dials: 2,  conv: 2, vm: 1 },
-  { date: '2026-05-04', hour: 16, dials: 4,  conv: 3, vm: 0 },
+  { date: '2026-05-04', hour: 10, dials: 1,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-04', hour: 12, dials: 1,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-05-04', hour: 14, dials: 2,  conv: 2, vm: 1, disc: 1 },
+  { date: '2026-05-04', hour: 16, dials: 4,  conv: 3, vm: 0, disc: 1 },
   // May 5
-  { date: '2026-05-05', hour: 11, dials: 3,  conv: 1, vm: 1 },
-  { date: '2026-05-05', hour: 13, dials: 4,  conv: 2, vm: 0 },
-  { date: '2026-05-05', hour: 14, dials: 5,  conv: 0, vm: 1 },
+  { date: '2026-05-05', hour: 11, dials: 3,  conv: 1, vm: 1, disc: 0 },
+  { date: '2026-05-05', hour: 13, dials: 4,  conv: 2, vm: 0, disc: 1 },
+  { date: '2026-05-05', hour: 14, dials: 5,  conv: 0, vm: 1, disc: 0 },
   // May 6
-  { date: '2026-05-06', hour: 11, dials: 5,  conv: 2, vm: 0 },
-  { date: '2026-05-06', hour: 12, dials: 5,  conv: 3, vm: 0 },
-  { date: '2026-05-06', hour: 13, dials: 3,  conv: 0, vm: 2 },
-  { date: '2026-05-06', hour: 14, dials: 7,  conv: 4, vm: 1 },
-  { date: '2026-05-06', hour: 16, dials: 2,  conv: 1, vm: 0 },
+  { date: '2026-05-06', hour: 11, dials: 5,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-05-06', hour: 12, dials: 5,  conv: 3, vm: 0, disc: 0 },
+  { date: '2026-05-06', hour: 13, dials: 3,  conv: 0, vm: 2, disc: 0 },
+  { date: '2026-05-06', hour: 14, dials: 7,  conv: 4, vm: 1, disc: 0 },
+  { date: '2026-05-06', hour: 16, dials: 2,  conv: 1, vm: 0, disc: 0 },
   // May 7
-  { date: '2026-05-07', hour: 11, dials: 1,  conv: 1, vm: 0 },
-  { date: '2026-05-07', hour: 12, dials: 8,  conv: 0, vm: 1 },
-  { date: '2026-05-07', hour: 13, dials: 3,  conv: 0, vm: 3 },
-  { date: '2026-05-07', hour: 14, dials: 3,  conv: 1, vm: 1 },
-  { date: '2026-05-07', hour: 15, dials: 7,  conv: 1, vm: 1 },
+  { date: '2026-05-07', hour: 11, dials: 1,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-07', hour: 12, dials: 8,  conv: 0, vm: 1, disc: 0 },
+  { date: '2026-05-07', hour: 13, dials: 3,  conv: 0, vm: 3, disc: 0 },
+  { date: '2026-05-07', hour: 14, dials: 3,  conv: 1, vm: 1, disc: 0 },
+  { date: '2026-05-07', hour: 15, dials: 7,  conv: 1, vm: 1, disc: 1 },
   // May 8
-  { date: '2026-05-08', hour: 11, dials: 1,  conv: 1, vm: 0 },
+  { date: '2026-05-08', hour: 11, dials: 1,  conv: 1, vm: 0, disc: 0 },
 ]
 
-// Mujeeb's correct hourly dials/conv/vm (May 4 – May 14)
+// Mujeeb's hourly data (May 4 – May 14). disc embedded at the actual hour.
 const MUJEEB_HOURLY = [
   // May 4
-  { date: '2026-05-04', hour: 12, dials: 3,  conv: 2, vm: 1 },
-  { date: '2026-05-04', hour: 13, dials: 3,  conv: 1, vm: 0 },
-  { date: '2026-05-04', hour: 14, dials: 4,  conv: 3, vm: 0 },
-  { date: '2026-05-04', hour: 15, dials: 1,  conv: 1, vm: 0 },
-  { date: '2026-05-04', hour: 16, dials: 8,  conv: 2, vm: 0 },
+  { date: '2026-05-04', hour: 12, dials: 3,  conv: 2, vm: 1, disc: 0 },
+  { date: '2026-05-04', hour: 13, dials: 3,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-04', hour: 14, dials: 4,  conv: 3, vm: 0, disc: 0 },
+  { date: '2026-05-04', hour: 15, dials: 1,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-04', hour: 16, dials: 8,  conv: 2, vm: 0, disc: 0 },
   // May 5
-  { date: '2026-05-05', hour: 10, dials: 1,  conv: 1, vm: 0 },
-  { date: '2026-05-05', hour: 11, dials: 3,  conv: 1, vm: 0 },
-  { date: '2026-05-05', hour: 12, dials: 4,  conv: 0, vm: 0 },
-  { date: '2026-05-05', hour: 13, dials: 4,  conv: 2, vm: 0 },
-  { date: '2026-05-05', hour: 14, dials: 4,  conv: 1, vm: 0 },
-  { date: '2026-05-05', hour: 15, dials: 5,  conv: 1, vm: 0 },
+  { date: '2026-05-05', hour: 10, dials: 1,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-05', hour: 11, dials: 3,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-05', hour: 12, dials: 4,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-05-05', hour: 13, dials: 4,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-05-05', hour: 14, dials: 4,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-05', hour: 15, dials: 5,  conv: 1, vm: 0, disc: 0 },
   // May 6
-  { date: '2026-05-06', hour: 11, dials: 4,  conv: 2, vm: 2 },
-  { date: '2026-05-06', hour: 12, dials: 2,  conv: 1, vm: 1 },
-  { date: '2026-05-06', hour: 13, dials: 4,  conv: 1, vm: 2 },
-  { date: '2026-05-06', hour: 14, dials: 2,  conv: 2, vm: 0 },
-  { date: '2026-05-06', hour: 15, dials: 5,  conv: 2, vm: 0 },
-  { date: '2026-05-06', hour: 16, dials: 4,  conv: 0, vm: 0 },
+  { date: '2026-05-06', hour: 11, dials: 4,  conv: 2, vm: 2, disc: 0 },
+  { date: '2026-05-06', hour: 12, dials: 2,  conv: 1, vm: 1, disc: 1 },
+  { date: '2026-05-06', hour: 13, dials: 4,  conv: 1, vm: 2, disc: 0 },
+  { date: '2026-05-06', hour: 14, dials: 2,  conv: 2, vm: 0, disc: 1 },
+  { date: '2026-05-06', hour: 15, dials: 5,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-05-06', hour: 16, dials: 4,  conv: 0, vm: 0, disc: 0 },
   // May 7
-  { date: '2026-05-07', hour: 11, dials: 6,  conv: 1, vm: 0 },
-  { date: '2026-05-07', hour: 12, dials: 1,  conv: 1, vm: 0 },
-  { date: '2026-05-07', hour: 13, dials: 8,  conv: 1, vm: 0 },
-  { date: '2026-05-07', hour: 14, dials: 3,  conv: 1, vm: 0 },
-  { date: '2026-05-07', hour: 15, dials: 5,  conv: 2, vm: 0 },
+  { date: '2026-05-07', hour:  9, dials: 0,  conv: 0, vm: 0, disc: 1 },
+  { date: '2026-05-07', hour: 11, dials: 6,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-07', hour: 12, dials: 1,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-07', hour: 13, dials: 8,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-07', hour: 14, dials: 3,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-07', hour: 15, dials: 5,  conv: 2, vm: 0, disc: 0 },
   // May 8
-  { date: '2026-05-08', hour: 11, dials: 7,  conv: 1, vm: 4 },
-  { date: '2026-05-08', hour: 12, dials: 8,  conv: 1, vm: 2 },
-  { date: '2026-05-08', hour: 13, dials: 1,  conv: 0, vm: 0 },
-  { date: '2026-05-08', hour: 16, dials: 1,  conv: 0, vm: 0 },
+  { date: '2026-05-08', hour: 11, dials: 7,  conv: 1, vm: 4, disc: 0 },
+  { date: '2026-05-08', hour: 12, dials: 8,  conv: 1, vm: 2, disc: 0 },
+  { date: '2026-05-08', hour: 13, dials: 1,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-05-08', hour: 16, dials: 1,  conv: 0, vm: 0, disc: 0 },
   // May 11
-  { date: '2026-05-11', hour:  9, dials: 5,  conv: 1, vm: 0 },
-  { date: '2026-05-11', hour: 10, dials: 3,  conv: 2, vm: 0 },
-  { date: '2026-05-11', hour: 11, dials: 8,  conv: 1, vm: 1 },
-  { date: '2026-05-11', hour: 12, dials: 8,  conv: 1, vm: 0 },
-  { date: '2026-05-11', hour: 13, dials: 13, conv: 1, vm: 2 },
-  { date: '2026-05-11', hour: 14, dials: 8,  conv: 1, vm: 0 },
-  { date: '2026-05-11', hour: 15, dials: 10, conv: 1, vm: 4 },
-  { date: '2026-05-11', hour: 16, dials: 5,  conv: 0, vm: 0 },
+  { date: '2026-05-11', hour:  9, dials: 5,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-11', hour: 10, dials: 3,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-05-11', hour: 11, dials: 8,  conv: 1, vm: 1, disc: 0 },
+  { date: '2026-05-11', hour: 12, dials: 8,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-11', hour: 13, dials: 13, conv: 1, vm: 2, disc: 0 },
+  { date: '2026-05-11', hour: 14, dials: 8,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-11', hour: 15, dials: 10, conv: 1, vm: 4, disc: 0 },
+  { date: '2026-05-11', hour: 16, dials: 5,  conv: 0, vm: 0, disc: 0 },
   // May 12
-  { date: '2026-05-12', hour:  9, dials: 2,  conv: 1, vm: 0 },
-  { date: '2026-05-12', hour: 10, dials: 3,  conv: 0, vm: 2 },
-  { date: '2026-05-12', hour: 11, dials: 5,  conv: 3, vm: 0 },
-  { date: '2026-05-12', hour: 12, dials: 8,  conv: 2, vm: 2 },
-  { date: '2026-05-12', hour: 14, dials: 5,  conv: 1, vm: 3 },
-  { date: '2026-05-12', hour: 15, dials: 5,  conv: 0, vm: 0 },
-  { date: '2026-05-12', hour: 16, dials: 8,  conv: 2, vm: 0 },
+  { date: '2026-05-12', hour:  9, dials: 2,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-12', hour: 10, dials: 3,  conv: 0, vm: 2, disc: 0 },
+  { date: '2026-05-12', hour: 11, dials: 5,  conv: 3, vm: 0, disc: 0 },
+  { date: '2026-05-12', hour: 12, dials: 8,  conv: 2, vm: 2, disc: 0 },
+  { date: '2026-05-12', hour: 14, dials: 5,  conv: 1, vm: 3, disc: 0 },
+  { date: '2026-05-12', hour: 15, dials: 5,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-05-12', hour: 16, dials: 8,  conv: 2, vm: 0, disc: 0 },
   // May 13
-  { date: '2026-05-13', hour: 10, dials: 7,  conv: 2, vm: 1 },
-  { date: '2026-05-13', hour: 11, dials: 4,  conv: 1, vm: 0 },
-  { date: '2026-05-13', hour: 12, dials: 5,  conv: 2, vm: 0 },
-  { date: '2026-05-13', hour: 13, dials: 4,  conv: 2, vm: 0 },
-  { date: '2026-05-13', hour: 14, dials: 5,  conv: 1, vm: 0 },
-  { date: '2026-05-13', hour: 15, dials: 2,  conv: 2, vm: 0 },
-  { date: '2026-05-13', hour: 16, dials: 4,  conv: 1, vm: 0 },
+  { date: '2026-05-13', hour: 10, dials: 7,  conv: 2, vm: 1, disc: 0 },
+  { date: '2026-05-13', hour: 11, dials: 4,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-13', hour: 12, dials: 5,  conv: 2, vm: 0, disc: 1 },
+  { date: '2026-05-13', hour: 13, dials: 4,  conv: 2, vm: 0, disc: 0 },
+  { date: '2026-05-13', hour: 14, dials: 5,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-13', hour: 15, dials: 2,  conv: 2, vm: 0, disc: 1 },
+  { date: '2026-05-13', hour: 16, dials: 4,  conv: 1, vm: 0, disc: 2 },
   // May 14
-  { date: '2026-05-14', hour: 10, dials: 5,  conv: 2, vm: 0 },
-  { date: '2026-05-14', hour: 11, dials: 2,  conv: 1, vm: 0 },
-  { date: '2026-05-14', hour: 13, dials: 2,  conv: 0, vm: 0 },
-  { date: '2026-05-14', hour: 14, dials: 4,  conv: 0, vm: 0 },
-  { date: '2026-05-14', hour: 15, dials: 5,  conv: 1, vm: 0 },
-  { date: '2026-05-14', hour: 16, dials: 6,  conv: 2, vm: 0 },
+  { date: '2026-05-14', hour: 10, dials: 5,  conv: 2, vm: 0, disc: 1 },
+  { date: '2026-05-14', hour: 11, dials: 2,  conv: 1, vm: 0, disc: 1 },
+  { date: '2026-05-14', hour: 13, dials: 2,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-05-14', hour: 14, dials: 4,  conv: 0, vm: 0, disc: 0 },
+  { date: '2026-05-14', hour: 15, dials: 5,  conv: 1, vm: 0, disc: 0 },
+  { date: '2026-05-14', hour: 16, dials: 6,  conv: 2, vm: 0, disc: 0 },
 ]
 
-// Discovery calls booked — daily totals at hour=0
-const TIMMY_DISC  = [
-  { date: '2026-04-27', disc: 3 },
-  { date: '2026-04-28', disc: 2 },
-  { date: '2026-04-29', disc: 1 },
-  { date: '2026-04-30', disc: 3 },
-  { date: '2026-05-04', disc: 3 },
-  { date: '2026-05-05', disc: 1 },
-  { date: '2026-05-07', disc: 2 },
-]
-const MUJEEB_DISC = [
-  { date: '2026-05-05', disc: 2 },
-  { date: '2026-05-06', disc: 2 },
-  { date: '2026-05-07', disc: 2 },
-  { date: '2026-05-11', disc: 1 },
-  { date: '2026-05-13', disc: 4 },
-  { date: '2026-05-14', disc: 2 },
-]
-
-// Demos scheduled — daily totals at hour=0
-const TIMMY_DEMO  = [
+// Demos — at noon UTC on the scheduled date
+const TIMMY_DEMO = [
   { date: '2026-05-11', demo: 3 },
   { date: '2026-05-12', demo: 1 },
   { date: '2026-05-14', demo: 1 },
@@ -184,6 +174,52 @@ const MUJEEB_DEMO = [
   { date: '2026-05-22', demo: 1 },
 ]
 
+// Ghosted / no-show timestamps (UTC, EST = UTC-5)
+const TIMMY_GHOSTED = [
+  '2026-05-08T16:00:00+00:00',
+  '2026-05-12T17:00:00+00:00',
+  '2026-05-15T17:00:00+00:00',
+  '2026-05-20T17:00:00+00:00',
+]
+const MUJEEB_GHOSTED = [
+  '2026-05-13T19:00:00+00:00',
+  '2026-05-20T15:00:00+00:00',
+]
+
+type LogEntry = typeof activity_log_entries.$inferInsert
+
+function hourlyToEntries(repId: string, rows: typeof TIMMY_HOURLY): LogEntry[] {
+  const entries: LogEntry[] = []
+  for (const row of rows) {
+    const ts = `${row.date}T${String(row.hour).padStart(2, '0')}:00:00+00:00`
+    for (const key of ['dials', 'conv', 'vm', 'disc'] as const) {
+      const count = row[key]
+      if (count > 0) {
+        const info = METRIC_INFO[key]
+        entries.push({ id: crypto.randomUUID(), rep_id: repId, metric_key: key, label: info.label, icon: info.icon, color: info.color, delta: count, logged_at: ts })
+      }
+    }
+  }
+  return entries
+}
+
+function demoToEntries(repId: string, rows: { date: string; demo: number }[]): LogEntry[] {
+  const info = METRIC_INFO['demo']
+  return rows.map((d) => ({
+    id: crypto.randomUUID(), rep_id: repId, metric_key: 'demo',
+    label: info.label, icon: info.icon, color: info.color,
+    delta: d.demo, logged_at: `${d.date}T12:00:00+00:00`,
+  }))
+}
+
+function ghostedToEntries(repId: string, timestamps: string[]): LogEntry[] {
+  return timestamps.map((ts) => ({
+    id: crypto.randomUUID(), rep_id: repId, metric_key: 'ghosted',
+    label: 'Cancelled / ghosted', icon: 'minus', color: '#FF5468',
+    delta: 1, logged_at: ts,
+  }))
+}
+
 async function seed() {
   const [timmyRep] = await db.select({ id: reps.id }).from(reps).where(ilike(reps.name, '%timmy%'))
   const [mujeebRep] = await db.select({ id: reps.id }).from(reps).where(ilike(reps.name, '%mujeeb%'))
@@ -191,52 +227,28 @@ async function seed() {
   if (!timmyRep) throw new Error('Timmy not found in reps — run npm run db:seed first')
   if (!mujeebRep) throw new Error('Mujeeb not found in reps — run npm run db:seed first')
 
-  // Wipe Mujeeb's old hourly data (hour > 0) before reinserting correct values
-  // hour = 0 rows hold disc/demo daily totals — leave those alone
-  await db
-    .delete(activity_daily)
-    .where(sql`${activity_daily.rep_id} = ${mujeebRep.id} AND ${activity_daily.hour} > 0`)
+  // Only wipe historical entries (up to May 14) — never touch recent live data
+  const HISTORICAL_CUTOFF = '2026-05-14T23:59:59.999Z'
+  await db.delete(activity_log_entries).where(
+    and(eq(activity_log_entries.rep_id, timmyRep.id), lte(activity_log_entries.logged_at, HISTORICAL_CUTOFF))
+  )
+  await db.delete(activity_log_entries).where(
+    and(eq(activity_log_entries.rep_id, mujeebRep.id), lte(activity_log_entries.logged_at, HISTORICAL_CUTOFF))
+  )
+  console.log('Cleared historical activity_log_entries for Timmy and Mujeeb (up to May 14)')
 
-  console.log('Cleared Mujeeb old hourly data')
-
-  const row = (repId: string, date: string, hour: number, dials = 0, conv = 0, vm = 0, disc = 0, demo = 0) => ({
-    id:     crypto.randomUUID(),
-    rep_id: repId,
-    date,
-    hour,
-    dials,
-    conv,
-    vm,
-    disc,
-    demo,
-    onb:    0,
-    closed: 0,
-  })
-
-  const rows = [
-    ...TIMMY_HOURLY.map((h) => row(timmyRep.id,  h.date, h.hour, h.dials, h.conv, h.vm)),
-    ...MUJEEB_HOURLY.map((h) => row(mujeebRep.id, h.date, h.hour, h.dials, h.conv, h.vm)),
-    ...TIMMY_DISC.map((d)    => row(timmyRep.id,  d.date, 0, 0, 0, 0, d.disc)),
-    ...MUJEEB_DISC.map((d)   => row(mujeebRep.id, d.date, 0, 0, 0, 0, d.disc)),
-    ...TIMMY_DEMO.map((d)    => row(timmyRep.id,  d.date, 0, 0, 0, 0, 0, d.demo)),
-    ...MUJEEB_DEMO.map((d)   => row(mujeebRep.id, d.date, 0, 0, 0, 0, 0, d.demo)),
+  const entries: LogEntry[] = [
+    ...hourlyToEntries(timmyRep.id,  TIMMY_HOURLY),
+    ...hourlyToEntries(mujeebRep.id, MUJEEB_HOURLY),
+    ...demoToEntries(timmyRep.id,    TIMMY_DEMO),
+    ...demoToEntries(mujeebRep.id,   MUJEEB_DEMO),
+    ...ghostedToEntries(timmyRep.id,  TIMMY_GHOSTED),
+    ...ghostedToEntries(mujeebRep.id, MUJEEB_GHOSTED),
   ]
 
-  await db
-    .insert(activity_daily)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [activity_daily.rep_id, activity_daily.date, activity_daily.hour],
-      set: {
-        dials: sql`excluded.dials`,
-        conv:  sql`excluded.conv`,
-        vm:    sql`excluded.vm`,
-        disc:  sql`excluded.disc`,
-        demo:  sql`excluded.demo`,
-      },
-    })
+  await db.insert(activity_log_entries).values(entries)
+  console.log(`Inserted ${entries.length} activity_log_entries`)
 
-  console.log(`Inserted ${rows.length} rows`)
   process.exit(0)
 }
 

@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { createClient } from '@/utils/supabase/client'
-import type { Rep, Client, ActivityDaily, ActivityLogEntry, Target, CountsByRep } from '@/lib/types'
-import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
+import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
+import { METRIC_GROUPS, ALL_METRICS } from '@/lib/constants'
 import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
@@ -11,7 +10,7 @@ import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
 import { Ring } from './charts'
 import { ClosedDealModal } from './ClosedDealModal'
 import {
-  getWeeklyCountsAction,
+  getActivityCountsAction,
   logActivityAction,
   decrementActivityAction,
   logClosedDealAction,
@@ -19,25 +18,23 @@ import {
 
 interface LiveTrackerProps {
   reps: Rep[]
-  initialFeed: ActivityLogEntry[]
+  feed: ActivityLogEntry[]
   dailyTarget: Target | null
   defaultRepId?: string
   onDealClosed?: (client: Client) => void
-  onActivityUpdated?: (row: ActivityDaily) => void
 }
 
 const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDealClosed, onActivityUpdated }: LiveTrackerProps) {
+export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? reps[0]?.id ?? 'team')
 
   useEffect(() => {
     if (defaultRepId) setActiveRep(defaultRepId)
   }, [defaultRepId])
 
-  const [feed, setFeed] = useState<ActivityLogEntry[]>(initialFeed)
-  const [countsByRep, setCountsByRep] = useState<CountsByRep>({})
+  const [countsByRep, setCountsByRep] = useState<Record<string, Record<string, number>>>({})
   const [now, setNow] = useState(new Date())
   const [showClosedModal, setShowClosedModal] = useState(false)
   const [range, setRange] = useState<LiveRange>('day')
@@ -50,55 +47,31 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
   const startISO = bounds.start.toISOString().slice(0, 10)
   const endISO   = bounds.end.toISOString().slice(0, 10)
 
-  // Current week start — used by decrementActivityAction to find entries to delete
-  const weekStartISO = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1))
-    d.setHours(0, 0, 0, 0)
-    return d.toISOString().slice(0, 10)
-  }, [])
+  // Fetch aggregated counts from server whenever the period changes
+  useEffect(() => {
+    getActivityCountsAction(startISO, endISO).then(setCountsByRep)
+  }, [startISO, endISO])
 
   function handleRangeChange(v: string) {
     setRange(v as LiveRange)
     setOffset(0)
   }
 
-  // tick relative timestamps every minute
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
 
-  // Reload counts whenever the period changes
-  useEffect(() => {
-    getWeeklyCountsAction(startISO, endISO).then(setCountsByRep)
-  }, [startISO, endISO])
-
-  // Poll counts every 3 s so other reps' activity shows without needing Realtime
-  useEffect(() => {
-    const id = setInterval(() => {
-      getWeeklyCountsAction(startISO, endISO).then(setCountsByRep)
-    }, 3000)
-    return () => clearInterval(id)
-  }, [startISO, endISO])
-
-  // Realtime: catches other reps' entries for the feed; deduplicates entries we already added manually
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('activity_log_entries')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log_entries' }, (payload) => {
-        const entry = payload.new as ActivityLogEntry
-        setFeed((f) => f.some((e) => e.id === entry.id) ? f : [entry, ...f].slice(0, 60))
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
+  // Feed filtered to current period for display
+  const filteredFeed = useMemo(() => {
+    const start = new Date(bounds.start); start.setHours(0, 0, 0, 0)
+    const end   = new Date(bounds.end);   end.setHours(23, 59, 59, 999)
+    return feed.filter((e) => { const d = new Date(e.logged_at); return d >= start && d <= end })
+  }, [feed, bounds])
 
   const isTeam = activeRep === 'team'
   const rep = reps.find((r) => r.id === activeRep) ?? null
 
-  // Active rep's own counts (used for timeline + log tiles)
   const counts = isTeam
     ? reps.reduce<Record<string, number>>((acc, r) => {
         const rc = countsByRep[r.id] ?? {}
@@ -107,71 +80,56 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
       }, {})
     : (countsByRep[activeRep] ?? {})
 
-  // Always team totals (used for ring charts vs team goal)
   const teamCounts = reps.reduce<Record<string, number>>((acc, r) => {
     const rc = countsByRep[r.id] ?? {}
     ALL_METRICS.forEach((m) => { acc[m.k] = (acc[m.k] ?? 0) + (rc[m.k] ?? 0) })
     return acc
   }, {})
 
-  // Targets are team-wide (not per-rep)
   const weeklyTargets: Record<string, number> = { ...WEEKLY_TARGETS }
 
   const logActivity = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
     const def = ALL_METRICS.find((m) => m.k === metricKey)
     if (!def) return
-
+    // Optimistic update
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
     }))
-
     try {
-      const result = await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
-      setFeed((f) => f.some((e) => e.id === result.entry.id) ? f : [result.entry, ...f].slice(0, 60))
-      if (result.dailyRow) onActivityUpdated?.(result.dailyRow)
+      await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color)
     } catch {
+      // Roll back optimistic update
       setCountsByRep((prev) => ({
         ...prev,
-        [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 1) - 1) },
+        [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 0) - 1) },
       }))
     }
-  }, [isTeam, rep, activeRep, onActivityUpdated])
+  }, [isTeam, rep, activeRep])
 
   const decrement = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
-
     const current = (countsByRep[activeRep] ?? {})[metricKey] ?? 0
     if (current <= 0) return
-
+    // Optimistic update
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current - 1 },
     }))
-
-    const result = await decrementActivityAction(activeRep, metricKey, weekStartISO)
-
-    if (!result.deleted) {
+    const result = await decrementActivityAction(activeRep, metricKey, startISO)
+    if (!result.deleted && !result.id) {
+      // Nothing was found to decrement — roll back
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
       }))
-    } else {
-      if (result.id) setFeed((f) => f.filter((e) => e.id !== result.id))
-      if (result.dailyRow) onActivityUpdated?.(result.dailyRow)
     }
-  }, [isTeam, rep, activeRep, countsByRep, weekStartISO, onActivityUpdated])
+  }, [isTeam, rep, activeRep, countsByRep, startISO])
 
   const logClosedDeal = useCallback(async (data: { companyName: string; monthlyPrice: number; closedDate: string }) => {
     setShowClosedModal(false)
     if (!rep) return
-
-    setCountsByRep((prev) => ({
-      ...prev,
-      [activeRep]: { ...(prev[activeRep] ?? {}), closed: ((prev[activeRep] ?? {}).closed ?? 0) + 1 },
-    }))
-
     try {
       const result = await logClosedDealAction({
         repId: activeRep,
@@ -181,14 +139,13 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
       })
       onDealClosed?.(result.client)
     } catch {
-      setCountsByRep((prev) => ({
-        ...prev,
-        [activeRep]: { ...(prev[activeRep] ?? {}), closed: Math.max(0, ((prev[activeRep] ?? {}).closed ?? 1) - 1) },
-      }))
+      // no optimistic state to roll back
     }
   }, [rep, activeRep, onDealClosed])
 
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+  void now // keeps the clock interval meaningful for any time-based displays
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -228,40 +185,40 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
           </div>
         </div>
         <div className="mt-3.5 flex gap-1 bg-bg-2 p-1 rounded-[10px] border border-line flex-wrap">
+          <button
+            onClick={() => setActiveRep('team')}
+            className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-[7px] transition-all"
+            style={{
+              background: isTeam ? '#00D4FF22' : 'transparent',
+              border: isTeam ? '1px solid #00D4FF66' : '1px solid transparent',
+            }}
+          >
+            <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #00D4FF, #8B5CF6)' }}>
+              <Icon name="team" size={12} color="#0A0E1A" />
+            </div>
+            <span className="text-[12px] font-semibold" style={{ color: isTeam ? '#00D4FF' : '#8B95B2' }}>Team</span>
+          </button>
+          {reps.map((r) => (
             <button
-              onClick={() => setActiveRep('team')}
+              key={r.id}
+              onClick={() => setActiveRep(r.id)}
               className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-[7px] transition-all"
               style={{
-                background: isTeam ? '#00D4FF22' : 'transparent',
-                border: isTeam ? '1px solid #00D4FF66' : '1px solid transparent',
+                background: activeRep === r.id ? r.color + '22' : 'transparent',
+                border: activeRep === r.id ? `1px solid ${r.color}66` : '1px solid transparent',
               }}
             >
-              <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center"
-                style={{ background: 'linear-gradient(135deg, #00D4FF, #8B5CF6)' }}>
-                <Icon name="team" size={12} color="#0A0E1A" />
-              </div>
-              <span className="text-[12px] font-semibold" style={{ color: isTeam ? '#00D4FF' : '#8B95B2' }}>Team</span>
+              <Avatar rep={r} size={22} />
+              <span className="text-[12px] font-semibold" style={{ color: activeRep === r.id ? r.color : '#8B95B2' }}>
+                {r.name.split(' ')[0]}
+              </span>
             </button>
-            {reps.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => setActiveRep(r.id)}
-                className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-[7px] transition-all"
-                style={{
-                  background: activeRep === r.id ? r.color + '22' : 'transparent',
-                  border: activeRep === r.id ? `1px solid ${r.color}66` : '1px solid transparent',
-                }}
-              >
-                <Avatar rep={r} size={22} />
-                <span className="text-[12px] font-semibold" style={{ color: activeRep === r.id ? r.color : '#8B95B2' }}>
-                  {r.name.split(' ')[0]}
-                </span>
-              </button>
-            ))}
-          </div>
+          ))}
+        </div>
       </Card>
 
-      {/* Key metrics — pipeline timeline + team rings */}
+      {/* Key metrics */}
       <Card>
         <div className="flex justify-between items-start mb-3">
           <SectionTitle>
@@ -270,7 +227,6 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
           </SectionTitle>
         </div>
 
-        {/* Timeline: rep's own numbers, no goal */}
         <div className="flex items-start pt-1">
           {WEEKLY_KEY_METRICS.map((k, i) => {
             const def = ALL_METRICS.find((m) => m.k === k)!
@@ -293,7 +249,6 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
           })}
         </div>
 
-        {/* Ring charts: always team totals vs team goal */}
         <div className="mt-6 pt-5 border-t border-line">
           <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">Team vs goal</div>
           <div className="grid grid-cols-4 gap-3.5">
@@ -345,15 +300,12 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
             </div>
           )}
 
-          {/* Columns layout: one column per metric group */}
           <div className="flex gap-4 p-4">
             {METRIC_GROUPS.map((group) => (
               <div key={group.group} className="flex-1 flex flex-col gap-2.5">
-                {/* Column header */}
                 <div className="pb-2.5 mb-0.5 border-b-2 border-line-2">
                   <div className="text-[11px] font-bold uppercase tracking-[1.2px] text-ink-1">{group.group}</div>
                 </div>
-                {/* Tiles stacked vertically */}
                 {group.items.map((def) => {
                   const v = (counts[def.k] as number) ?? 0
                   const t = weeklyTargets[def.k]
@@ -378,15 +330,15 @@ export function LiveTracker({ reps, initialFeed, dailyTarget, defaultRepId, onDe
         <Card padding={0} style={{ position: 'sticky', top: 120 }}>
           <div className="px-[18px] py-4 flex justify-between items-center border-b border-line">
             <div className="text-[13px] font-bold">Activity feed</div>
-            <Pill color="#00D4FF">live</Pill>
+            <Pill color={isHistorical ? '#8B5CF6' : '#00D4FF'}>{isHistorical ? `${filteredFeed.length} events` : 'live'}</Pill>
           </div>
           <div className="max-h-[620px] overflow-y-auto px-3.5 pb-3.5 pt-1">
-            {feed.length === 0 && (
+            {filteredFeed.length === 0 && (
               <div className="py-10 px-3 text-center text-ink-3 text-[12px]">
                 No activity yet — start tapping +1.
               </div>
             )}
-            {feed.map((item) => {
+            {filteredFeed.map((item) => {
               const r = reps.find((x) => x.id === item.rep_id)
               return (
                 <div key={item.id} className="grid items-center gap-2 py-2.5 px-0.5 border-b border-line"

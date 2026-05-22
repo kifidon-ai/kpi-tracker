@@ -2,7 +2,6 @@ import { db } from '@/db'
 import {
   reps as repsTable,
   clients as clientsTable,
-  activity_daily as activityDailyTable,
   activity_log_entries as activityLogTable,
   targets as targetsTable,
 } from '@/db/schema'
@@ -12,11 +11,10 @@ import { Shell } from '@/components/Shell'
 export const dynamic = 'force-dynamic'
 
 export default async function Page() {
-  const [reps, clients, activity, feed, targets] = await Promise.all([
+  const [reps, clients, feed, targets] = await Promise.all([
     db.select().from(repsTable).orderBy(asc(repsTable.created_at)),
     db.select().from(clientsTable).orderBy(desc(clientsTable.mrr)),
-    db.select().from(activityDailyTable).orderBy(asc(activityDailyTable.date)),
-    db.select().from(activityLogTable).orderBy(desc(activityLogTable.logged_at)).limit(60),
+    db.select().from(activityLogTable).orderBy(desc(activityLogTable.logged_at)).limit(1000),
     db.select().from(targetsTable),
   ])
 
@@ -24,7 +22,6 @@ export default async function Page() {
     <Shell
       reps={reps}
       clients={clients}
-      activity={activity}
       feed={feed}
       targets={targets}
     />
