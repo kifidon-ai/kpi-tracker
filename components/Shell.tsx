@@ -170,7 +170,6 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
           <LiveTracker
             reps={reps}
             feed={feed}
-            dailyTarget={targets.find((t) => t.period === 'daily') ?? null}
             defaultRepId={currentRepId ?? undefined}
             isSuperUser={isSuperUser}
             onDealClosed={handleDealClosed}

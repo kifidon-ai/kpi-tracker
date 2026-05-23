@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
+import type { Rep, Client, ActivityLogEntry } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS } from '@/lib/constants'
 import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
@@ -19,16 +19,15 @@ import {
 interface LiveTrackerProps {
   reps: Rep[]
   feed: ActivityLogEntry[]
-  dailyTarget: Target | null
   defaultRepId?: string
   isSuperUser?: boolean
   onDealClosed?: (client: Client) => void
 }
 
-const WEEKLY_TARGETS = { dials: 200, conv: 100, vm: 0, disc: 10, demo: 5 }
+const WEEKLY_TARGETS = { dials: 300, conv: 50, vm: 0, disc: 25, demo: 16, closed: 8 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, feed, dailyTarget, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
+export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? reps[0]?.id ?? 'team')
 
   useEffect(() => {
