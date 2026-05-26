@@ -75,9 +75,12 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
 }
 
 export function TeamPerformance({ reps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+  type ClientSortKey = 'name' | 'since_date' | 'mrr' | 'arr' | 'rep'
+
   const [range, setRange] = useState<Range>('week')
   const [offset, setOffset] = useState(0)
   const [trendGranularity, setTrendGranularity] = useState<'week' | 'day'>('week')
+  const [clientSort, setClientSort] = useState<{ key: ClientSortKey; dir: 'asc' | 'desc' }>({ key: 'since_date', dir: 'desc' })
 
   // Server-side aggregated counts for the selected period and previous period
   const [totals, setTotals]         = useState<Record<string, number>>({})
@@ -181,17 +184,26 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
 
   // Trend charts: aggregated server-side, bucketed here
   const weeks = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const dow = today.getDay()
+    const daysFromMonday = dow === 0 ? 6 : dow - 1
+    const thisMonday = new Date(today)
+    thisMonday.setDate(today.getDate() - daysFromMonday)
+
     const out = []
     for (let w = 5; w >= 0; w--) {
-      const end = new Date(); end.setDate(end.getDate() - w * 7)
-      const start = new Date(end); start.setDate(end.getDate() - 6)
+      const start = new Date(thisMonday)
+      start.setDate(thisMonday.getDate() - w * 7)
+      const end = w === 0 ? new Date(today) : new Date(start)
+      if (w > 0) end.setDate(start.getDate() + 6)
       const startStr = toISO(start)
       const endStr   = toISO(end)
       const t: Record<string, number> = {}
       trendRows.filter((r) => r.date >= startStr && r.date <= endStr)
                .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
-      out.push({ label: (start.getMonth() + 1) + '/' + start.getDate(),
-        dials: t.dials ?? 0, conv: t.conv ?? 0, vm: t.vm ?? 0,
+      const label = w === 0 ? 'Now' : (start.getMonth() + 1) + '/' + start.getDate()
+      out.push({ label, dials: t.dials ?? 0, conv: t.conv ?? 0, vm: t.vm ?? 0,
         disc: t.disc ?? 0, demo: t.demo ?? 0, onb: t.onb ?? 0, closed: t.closed ?? 0 })
     }
     return out
@@ -313,6 +325,36 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
   ]
 
   void pct // imported but used inline below
+
+  function toggleClientSort(key: ClientSortKey) {
+    setClientSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'since_date' ? 'desc' : 'asc' }
+    )
+  }
+
+  const sortedClients = useMemo(() => [...clients].sort((a, b) => {
+    const dir = clientSort.dir === 'asc' ? 1 : -1
+    if (clientSort.key === 'name') return dir * a.name.localeCompare(b.name)
+    if (clientSort.key === 'since_date') return dir * ((a.since_date ?? '').localeCompare(b.since_date ?? ''))
+    if (clientSort.key === 'mrr') return dir * (a.mrr - b.mrr)
+    if (clientSort.key === 'arr') return dir * (a.mrr * 12 - b.mrr * 12)
+    if (clientSort.key === 'rep') {
+      const ra = reps.find((r) => r.id === a.owner_id)?.name ?? ''
+      const rb = reps.find((r) => r.id === b.owner_id)?.name ?? ''
+      return dir * ra.localeCompare(rb)
+    }
+    return 0
+  }), [clients, clientSort, reps])
+
+  const clientCols: { label: string; key: ClientSortKey; left?: boolean }[] = [
+    { label: 'Client',    key: 'name',       left: true },
+    { label: 'Onboarded', key: 'since_date'  },
+    { label: 'MRR',       key: 'mrr'         },
+    { label: 'ARR',       key: 'arr'         },
+    { label: 'Rep',       key: 'rep'          },
+  ]
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -747,13 +789,26 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
           <table className="w-full border-collapse text-[12.5px]">
             <thead>
               <tr className="text-ink-3 text-[10.5px] uppercase tracking-[0.5px]">
-                {['Client', 'MRR', 'ARR', 'Rep', 'Date'].map((h) => (
-                  <th key={h} className={`${h === 'Client' ? 'text-left' : 'text-right'} px-3.5 py-3 font-semibold border-b border-line`}>{h}</th>
-                ))}
+                {clientCols.map((col) => {
+                  const active = clientSort.key === col.key
+                  return (
+                    <th
+                      key={col.key}
+                      onClick={() => toggleClientSort(col.key)}
+                      className={`${col.left ? 'text-left' : 'text-right'} px-3.5 py-3 font-semibold border-b border-line cursor-pointer select-none hover:text-ink-1 transition-colors ${active ? 'text-ink-1' : ''}`}
+                    >
+                      <span className="inline-flex items-center gap-1 justify-end">
+                        {!col.left && active && <span className="text-[9px]">{clientSort.dir === 'asc' ? '▲' : '▼'}</span>}
+                        {col.label}
+                        {col.left && active && <span className="text-[9px]">{clientSort.dir === 'asc' ? '▲' : '▼'}</span>}
+                      </span>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => {
+              {sortedClients.map((c) => {
                 const owner = reps.find((r) => r.id === c.owner_id)
                 return (
                   <tr key={c.id} className="border-b border-[#1A1F30]">
@@ -763,10 +818,10 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
                         <span className="font-semibold">{c.name}</span>
                       </div>
                     </td>
+                    <td className="mono px-3.5 py-3 text-right text-ink-3">{c.since_date}</td>
                     <td className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{fmtMoney(c.mrr)}</td>
                     <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(c.mrr * 12)}</td>
                     <td className="px-3.5 py-3 text-right text-ink-2">{owner ? owner.name.split(' ')[0] : '—'}</td>
-                    <td className="mono px-3.5 py-3 text-right text-ink-3">{c.since_date}</td>
                   </tr>
                 )
               })}
