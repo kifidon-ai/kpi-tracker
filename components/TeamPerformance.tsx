@@ -486,7 +486,7 @@ export function TeamPerformance({ reps, clients, feed, targets, initialMrr, acti
               <div className="mono text-[34px] font-extrabold text-white tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
               <div className="flex items-center gap-2.5 mt-2">
                 <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
-                <Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(arr / activeClientCount)) : '—'}</Pill>
+                <Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(initialMrr / activeClientCount)) : '—'}</Pill>
               </div>
             </div>
           </div>
