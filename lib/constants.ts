@@ -4,16 +4,16 @@ export const METRIC_GROUPS: MetricGroup[] = [
   {
     group: 'Outreach',
     items: [
-      { k: 'dials', label: 'Dial',         short: 'Dial',     icon: 'phone',    color: '#00D4FF' },
-      { k: 'conv',  label: 'Conversation', short: 'Conv',     icon: 'chat',     color: '#8B5CF6' },
+      { k: 'dials', label: 'Dial',         short: 'Dial',     icon: 'phone',    color: '#FF4444' },
+      { k: 'conv',  label: 'Conversation', short: 'Conv',     icon: 'chat',     color: '#FF8C00' },
       { k: 'vm',    label: 'Voicemail',    short: 'VM',       icon: 'voicemail',color: '#5A6685' },
     ],
   },
   {
     group: 'Meetings booked',
     items: [
-      { k: 'disc', label: 'Discovery booked', short: 'Disc booked', icon: 'calendar', color: '#FFB800' },
-      { k: 'demo', label: 'Demo booked',      short: 'Demo booked', icon: 'present',  color: '#FF3D9A' },
+      { k: 'disc', label: 'Discovery booked', short: 'Disc booked', icon: 'calendar', color: '#FFD700' },
+      { k: 'demo', label: 'Demo booked',      short: 'Demo booked', icon: 'present',  color: '#00E5A0' },
     ],
   },
   {

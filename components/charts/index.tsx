@@ -177,8 +177,8 @@ interface RingProps {
 export function Ring({ value, target, size = 120, stroke = 10, color = '#00D4FF', label }: RingProps) {
   const r = (size - stroke) / 2
   const C = 2 * Math.PI * r
-  const ratio = Math.min(1, target ? value / target : value)
-  const dash = C * ratio
+  const ratio = target ? value / target : value
+  const dash = C * Math.min(ratio, 1)
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1E2538" strokeWidth={stroke} />

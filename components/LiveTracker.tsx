@@ -24,11 +24,11 @@ interface LiveTrackerProps {
   onDealClosed?: (client: Client) => void
 }
 
-const WEEKLY_TARGETS = { dials: 300, conv: 50, vm: 0, disc: 25, demo: 16, closed: 8 }
+const WEEKLY_TARGETS = { dials: 750, conv: 150, vm: 0, disc: 60, demo: 45, closed: 12 }
 const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
 export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
-  const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? reps[0]?.id ?? 'team')
+  const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? 'team')
 
   useEffect(() => {
     if (defaultRepId) setActiveRep(defaultRepId)
@@ -87,7 +87,9 @@ export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onD
     return acc
   }, {})
 
-  const weeklyTargets: Record<string, number> = { ...WEEKLY_TARGETS }
+  const weeklyTargets: Record<string, number> = Object.fromEntries(
+    Object.entries(WEEKLY_TARGETS).map(([k, v]) => [k, range === 'day' ? Math.round(v / 5) : v])
+  )
 
   const logActivity = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
