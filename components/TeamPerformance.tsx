@@ -74,7 +74,8 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
   return b.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
-export function TeamPerformance({ reps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+  const reps = allReps.filter((r) => r.is_active)
   type ClientSortKey = 'name' | 'since_date' | 'mrr' | 'arr' | 'rep'
 
   const [range, setRange] = useState<Range>('week')

@@ -30,7 +30,7 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) return
       const match = reps.find((r) => r.user_id === data.user!.id)
-      if (match) setCurrentRepId(match.id)
+      if (match && match.is_active) setCurrentRepId(match.id)
       if (data.user.email && SUPERUSER_EMAILS.includes(data.user.email)) {
         setIsSuperUser(true)
       }
@@ -170,6 +170,7 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
           <LiveTracker
             reps={reps}
             feed={feed}
+            targets={targets}
             defaultRepId={currentRepId ?? undefined}
             isSuperUser={isSuperUser}
             onDealClosed={handleDealClosed}

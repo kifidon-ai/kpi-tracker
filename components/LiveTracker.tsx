@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { Rep, Client, ActivityLogEntry } from '@/lib/types'
+import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS } from '@/lib/constants'
 import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
@@ -19,15 +19,15 @@ import {
 interface LiveTrackerProps {
   reps: Rep[]
   feed: ActivityLogEntry[]
+  targets: Target[]
   defaultRepId?: string
   isSuperUser?: boolean
   onDealClosed?: (client: Client) => void
 }
 
-const WEEKLY_TARGETS = { dials: 750, conv: 150, vm: 0, disc: 60, demo: 45, closed: 12 }
-const WEEKLY_KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
+const KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
-export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
+export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? 'team')
 
   useEffect(() => {
@@ -72,23 +72,37 @@ export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onD
 
   const isTeam = activeRep === 'team'
   const rep = reps.find((r) => r.id === activeRep) ?? null
+  const activeReps = reps.filter((r) => r.is_active)
 
   const counts = isTeam
-    ? reps.reduce<Record<string, number>>((acc, r) => {
+    ? activeReps.reduce<Record<string, number>>((acc, r) => {
         const rc = countsByRep[r.id] ?? {}
         ALL_METRICS.forEach((m) => { acc[m.k] = (acc[m.k] ?? 0) + (rc[m.k] ?? 0) })
         return acc
       }, {})
     : (countsByRep[activeRep] ?? {})
 
-  const teamCounts = reps.reduce<Record<string, number>>((acc, r) => {
+  const teamCounts = activeReps.reduce<Record<string, number>>((acc, r) => {
     const rc = countsByRep[r.id] ?? {}
     ALL_METRICS.forEach((m) => { acc[m.k] = (acc[m.k] ?? 0) + (rc[m.k] ?? 0) })
     return acc
   }, {})
 
-  const weeklyTargets: Record<string, number> = Object.fromEntries(
-    Object.entries(WEEKLY_TARGETS).map(([k, v]) => [k, range === 'day' ? Math.round(v / 5) : v])
+  const perPersonTarget = targets.find((t) => t.period === 'per_person') ?? null
+  const periodMult = range === 'day' ? 0.2 : range === 'month' ? 4 : 1
+
+  function getTarget(key: string, forTeam: boolean): number {
+    if (!perPersonTarget) return 0
+    const weekly = (perPersonTarget as Record<string, unknown>)[key] as number ?? 0
+    const repMult = forTeam ? activeReps.length : 1
+    return Math.round(weekly * repMult * periodMult)
+  }
+
+  const effectiveTargets: Record<string, number> = Object.fromEntries(
+    ALL_METRICS.map((m) => [m.k, getTarget(m.k, isTeam)])
+  )
+  const teamTargets: Record<string, number> = Object.fromEntries(
+    ALL_METRICS.map((m) => [m.k, getTarget(m.k, true)])
   )
 
   const logActivity = useCallback(async (metricKey: string) => {
@@ -204,7 +218,7 @@ export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onD
             </div>
             <span className="text-[12px] font-semibold" style={{ color: isTeam ? '#00D4FF' : '#8B95B2' }}>Team</span>
           </button>
-          {reps.map((r) => (
+          {activeReps.map((r) => (
             <button
               key={r.id}
               onClick={() => setActiveRep(r.id)}
@@ -233,17 +247,17 @@ export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onD
         </div>
 
         <div className="flex items-start pt-1">
-          {WEEKLY_KEY_METRICS.map((k, i) => {
+          {KEY_METRICS.map((k, i) => {
             const def = ALL_METRICS.find((m) => m.k === k)!
             const v = (counts[k] as number) ?? 0
             return (
-              <div key={k} className={`flex items-center ${i < WEEKLY_KEY_METRICS.length - 1 ? 'flex-1' : 'flex-none'}`}>
+              <div key={k} className={`flex items-center ${i < KEY_METRICS.length - 1 ? 'flex-1' : 'flex-none'}`}>
                 <div className="flex flex-col gap-1.5 shrink-0">
                   <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: def.color }}>{def.short}</div>
                   <div className="mono text-[36px] font-extrabold text-white leading-none">{v}</div>
                   <div className="text-[10px] text-ink-3">{def.label}</div>
                 </div>
-                {i < WEEKLY_KEY_METRICS.length - 1 && (
+                {i < KEY_METRICS.length - 1 && (
                   <div className="flex-1 flex items-center px-4 min-w-10">
                     <div className="flex-1 h-px bg-[#2A3350]" />
                     <span className="text-[#2A3350] text-[10px] leading-none">▶</span>
@@ -257,10 +271,10 @@ export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onD
         <div className="mt-6 pt-5 border-t border-line">
           <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">Team vs goal</div>
           <div className="grid grid-cols-4 gap-3.5">
-            {WEEKLY_KEY_METRICS.map((k) => {
+            {KEY_METRICS.map((k) => {
               const def = ALL_METRICS.find((m) => m.k === k)!
               const v = (teamCounts[k] as number) ?? 0
-              const t = weeklyTargets[k] ?? 1
+              const t = teamTargets[k] ?? 1
               return (
                 <div key={k} className="flex flex-col items-center gap-2.5 py-1">
                   <Ring value={v} target={t} color={def.color} size={110} stroke={9} label={def.short} />
@@ -313,7 +327,7 @@ export function LiveTracker({ reps, feed, defaultRepId, isSuperUser = false, onD
                 </div>
                 {group.items.map((def) => {
                   const v = (counts[def.k] as number) ?? 0
-                  const t = weeklyTargets[def.k]
+                  const t = effectiveTargets[def.k]
                   return (
                     <LogTile
                       key={def.k}

@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, doublePrecision, date, timestamp, uuid, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, varchar, integer, doublePrecision, date, timestamp, uuid, index, boolean } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 // Use snake_case field names so InferSelectModel matches existing component code
@@ -12,6 +12,7 @@ export const reps = pgTable('reps', {
   role:        text('role').notNull().default('SDR'),
   created_at:  timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
   user_id:     uuid('user_id').unique(),
+  is_active:   boolean('is_active').notNull().default(true),
 })
 
 export const clients = pgTable('clients', {

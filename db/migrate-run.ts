@@ -68,6 +68,35 @@ async function run() {
   // 004 — drop activity_daily (all data now lives in activity_log_entries)
   await db.execute(sql`DROP TABLE IF EXISTS activity_daily CASCADE`)
 
+  // 005 — add is_active column to reps
+  await db.execute(sql`
+    ALTER TABLE reps ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true
+  `)
+
+  // 006 — set is_active based on name
+  await db.execute(sql`
+    UPDATE reps SET is_active = false
+    WHERE name ILIKE '%shary%' OR name ILIKE '%alex%'
+  `)
+  await db.execute(sql`
+    UPDATE reps SET is_active = true
+    WHERE name ILIKE '%timmy%' OR name ILIKE '%mujeeb%'
+  `)
+
+  // 007 — upsert per_person weekly target row
+  await db.execute(sql`
+    INSERT INTO targets (id, period, dials, conv, vm, disc, demo, onb, closed)
+    VALUES (gen_random_uuid(), 'per_person', 250, 50, 0, 20, 15, 0, 4)
+    ON CONFLICT (period) DO UPDATE SET
+      dials  = 250,
+      conv   = 50,
+      vm     = 0,
+      disc   = 20,
+      demo   = 15,
+      onb    = 0,
+      closed = 4
+  `)
+
   console.log('Migrations complete')
   process.exit(0)
 }
