@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals, clients, tasks } from '@/db/schema'
+import { activity_log_entries, closed_deals, clients, tasks, daily_checklist } from '@/db/schema'
 import { eq, and, gte, lte, desc, sql, asc } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
@@ -226,4 +226,34 @@ export async function getTasksAction() {
   } catch {
     return []
   }
+}
+
+export async function getDailyChecklistAction(dateKey: string) {
+  try {
+    return await db
+      .select({ item_id: daily_checklist.item_id, rep_id: daily_checklist.rep_id })
+      .from(daily_checklist)
+      .where(eq(daily_checklist.date_key, dateKey))
+  } catch {
+    return []
+  }
+}
+
+export async function checkDailyItemAction(dateKey: string, itemId: string, repId: string) {
+  await db
+    .insert(daily_checklist)
+    .values({ date_key: dateKey, item_id: itemId, rep_id: repId })
+    .onConflictDoNothing()
+  return { ok: true }
+}
+
+export async function uncheckDailyItemAction(dateKey: string, itemId: string, repId: string) {
+  await db
+    .delete(daily_checklist)
+    .where(and(
+      eq(daily_checklist.date_key, dateKey),
+      eq(daily_checklist.item_id, itemId),
+      eq(daily_checklist.rep_id, repId),
+    ))
+  return { ok: true }
 }

@@ -13,6 +13,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { createClient } from '@/utils/supabase/client'
 import { useNotifications, type SoundType } from '@/hooks/useNotifications'
 import { useScheduledNotifications } from '@/hooks/useScheduledNotifications'
+import { DailyChecklist } from './DailyChecklist'
 
 const TaskTracker = dynamic(
   () => import('./TaskTracker').then((m) => m.TaskTracker),
@@ -277,7 +278,10 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
           />
         )}
         {tab === 'tasks' && (
-          <TaskTracker reps={reps} currentRepId={currentRepId} notify={notify} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: 40, alignItems: 'start' }}>
+            <DailyChecklist reps={reps} currentRepId={currentRepId} />
+            <TaskTracker reps={reps} currentRepId={currentRepId} notify={notify} />
+          </div>
         )}
       </main>
     </div>

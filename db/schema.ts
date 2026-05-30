@@ -61,6 +61,16 @@ export const closed_deals = pgTable('closed_deals', {
   created_at:    timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 })
 
+export const daily_checklist = pgTable('daily_checklist', {
+  id:         uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  date_key:   text('date_key').notNull(),
+  item_id:    text('item_id').notNull(),
+  rep_id:     text('rep_id').notNull().references(() => reps.id),
+  checked_at: timestamp('checked_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_daily_checklist_date').on(t.date_key),
+])
+
 export const tasks = pgTable('tasks', {
   id:             uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   title:          text('title').notNull(),
