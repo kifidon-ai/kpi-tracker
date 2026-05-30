@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:clean": "rm -rf .next && next dev",
     "build": "next build",
     "start": "next start",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
@@ -12,7 +13,8 @@
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "db:seed": "dotenv -e .env.local -- tsx db/seed.ts",
     "db:seed-historical": "dotenv -e .env.local -- tsx db/seed-historical.ts",
-    "db:run": "dotenv -e .env.local -- tsx db/migrate-run.ts"
+    "db:run": "dotenv -e .env.local -- tsx db/migrate-run.ts",
+    "db:migrate-tasks": "dotenv -e .env.local -- tsx db/migrate-tasks.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

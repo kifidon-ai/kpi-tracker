@@ -371,13 +371,13 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setOffset((o) => o + 1)}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none"
               >←</button>
               <span className="text-[12px] text-ink-2 font-medium w-[130px] text-center">{label}</span>
               <button
                 onClick={() => setOffset((o) => Math.max(0, o - 1))}
                 disabled={offset === 0}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
               >→</button>
             </div>
           )}
@@ -411,7 +411,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 <div key={s.label} className={`flex items-center ${i < pipelineStages.length - 1 ? 'flex-1' : 'flex-none'}`}>
                   <div className="flex flex-col items-center gap-1.5 shrink-0">
                     <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: s.color }}>{s.label}</div>
-                    <div className="mono text-[36px] font-extrabold text-white leading-none">{s.value}</div>
+                    <div className="mono text-[36px] font-extrabold text-ink leading-none">{s.value}</div>
                     <div className="w-9 h-[3px] rounded-sm opacity-70" style={{ background: s.color }} />
                   </div>
                   {i < pipelineStages.length - 1 && (() => {
@@ -450,7 +450,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                       <div key={g.label} className="flex flex-col items-center gap-1.5">
                         <div className="relative w-[52px] h-[52px]">
                           <svg width="52" height="52" viewBox="0 0 52 52" className="-rotate-90" style={{ display: 'block' }}>
-                            <circle cx="26" cy="26" r={r} fill="none" stroke="#1E2538" strokeWidth="4" />
+                            <circle cx="26" cy="26" r={r} fill="none" stroke="var(--line)" strokeWidth="4" />
                             <circle
                               cx="26" cy="26" r={r} fill="none"
                               stroke={g.color} strokeWidth="4"
@@ -461,7 +461,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                             />
                           </svg>
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="mono text-[10px] font-bold text-white leading-none">{Math.round(progress)}%</span>
+                            <span className="mono text-[10px] font-bold text-ink leading-none">{Math.round(progress)}%</span>
                           </div>
                         </div>
                         <div className="text-[9px] uppercase tracking-[0.6px] font-bold" style={{ color: g.color }}>{g.label}</div>
@@ -484,7 +484,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           <div className="w-full border-t border-line mt-4 pt-4">
             <div className="mx-auto w-1/2 flex flex-col items-center justify-center border-b border-line mb-2">
               <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold mb-1.5">Annual Recurring Revenue</div>
-              <div className="mono text-[34px] font-extrabold text-white tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
+              <div className="mono text-[34px] font-extrabold text-ink tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
               <div className="flex items-center gap-2.5 mt-2">
                 <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
                 <Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(initialMrr / activeClientCount)) : '—'}</Pill>
@@ -602,21 +602,21 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="mono text-[12px] font-semibold text-white">{dials || '—'}</span>
+                      <span className="mono text-[12px] font-semibold text-ink">{dials || '—'}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="mono text-[12px] font-semibold text-white">{conv || '—'}</span>
+                      <span className="mono text-[12px] font-semibold text-ink">{conv || '—'}</span>
                       {cvRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{cvRate.toFixed(0)}%</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="mono text-[12px] text-ink-2">{vm || '—'}</span>
                     </td>
                     <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
-                      <span className="mono text-[12px] font-semibold text-white">{disc || '—'}</span>
+                      <span className="mono text-[12px] font-semibold text-ink">{disc || '—'}</span>
                       {discRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{discRate.toFixed(0)}%</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="mono text-[12px] font-semibold text-white">{demo || '—'}</span>
+                      <span className="mono text-[12px] font-semibold text-ink">{demo || '—'}</span>
                       {demoRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{demoRate.toFixed(0)}%</span>}
                     </td>
                     <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
@@ -772,7 +772,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                   <div className="mt-3 pt-3 border-t border-line flex items-center gap-1.5 text-[11px]">
                     <span className="w-1.5 h-1.5 rounded-full bg-mint shrink-0" />
                     <span className="text-ink-2">Best time to call:</span>
-                    <span className="mono font-bold text-white">{fmtHour(peak.h)}</span>
+                    <span className="mono font-bold text-ink">{fmtHour(peak.h)}</span>
                     <span className="text-ink-3">— {peak.total} disc {peak.total === 1 ? 'booking' : 'bookings'} logged</span>
                   </div>
                 )}

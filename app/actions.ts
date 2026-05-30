@@ -1,8 +1,8 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals, clients } from '@/db/schema'
-import { eq, and, gte, lte, desc, sql } from 'drizzle-orm'
+import { activity_log_entries, closed_deals, clients, tasks } from '@/db/schema'
+import { eq, and, gte, lte, desc, sql, asc } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
@@ -152,4 +152,78 @@ export async function logClosedDealAction(data: {
     .returning()
 
   return { deal, client, entry }
+}
+
+export async function createTaskAction(data: {
+  title: string
+  description?: string
+  assigneeIds?: string[]
+  createdById: string
+  deadline?: string | null
+  status?: string
+}) {
+  const status = data.status ?? 'todo'
+  const maxPos = await db
+    .select({ max: sql<number>`coalesce(max(${tasks.position}), -1)` })
+    .from(tasks)
+    .where(eq(tasks.status, status))
+
+  const [task] = await db
+    .insert(tasks)
+    .values({
+      title: data.title,
+      description: data.description || null,
+      assignee_ids: data.assigneeIds ?? [],
+      created_by_id: data.createdById,
+      deadline: data.deadline || null,
+      status,
+      position: (maxPos[0]?.max ?? -1) + 1,
+    })
+    .returning()
+
+  return { task }
+}
+
+export async function updateTaskAction(
+  taskId: string,
+  data: {
+    title?: string
+    description?: string | null
+    assigneeIds?: string[]
+    deadline?: string | null
+    status?: string
+    position?: number
+  },
+) {
+  const [task] = await db
+    .update(tasks)
+    .set({
+      ...(data.title !== undefined ? { title: data.title } : {}),
+      ...(data.description !== undefined ? { description: data.description } : {}),
+      ...(data.assigneeIds !== undefined ? { assignee_ids: data.assigneeIds } : {}),
+      ...(data.deadline !== undefined ? { deadline: data.deadline } : {}),
+      ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.position !== undefined ? { position: data.position } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .where(eq(tasks.id, taskId))
+    .returning()
+
+  return { task }
+}
+
+export async function deleteTaskAction(taskId: string) {
+  await db.delete(tasks).where(eq(tasks.id, taskId))
+  return { ok: true }
+}
+
+export async function getTasksAction() {
+  try {
+    return await db
+      .select()
+      .from(tasks)
+      .orderBy(asc(tasks.status), asc(tasks.position), desc(tasks.created_at))
+  } catch {
+    return []
+  }
 }

@@ -77,7 +77,7 @@ export function LineChart({ series, labels, width = 720, height = 240, yFormatte
         const y = pad.t + h - (t / niceMax) * h
         return (
           <g key={i}>
-            <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="#1E2538" strokeDasharray="2 4" />
+            <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 4" />
             <text x={pad.l - 8} y={y + 4} fill="#5A6685" fontSize="10" textAnchor="end" fontFamily="JetBrains Mono">{yFormatter(t)}</text>
           </g>
         )
@@ -133,7 +133,7 @@ export function BarChart({ data, width = 720, height = 220, color = '#00D4FF', t
         const y = pad.t + h - (t / niceMax) * h
         return (
           <g key={i}>
-            <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="#1E2538" strokeDasharray="2 4" />
+            <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 4" />
             <text x={pad.l - 8} y={y + 4} fill="#5A6685" fontSize="10" textAnchor="end" fontFamily="JetBrains Mono">{formatter(t)}</text>
           </g>
         )
@@ -181,7 +181,7 @@ export function Ring({ value, target, size = 120, stroke = 10, color = '#00D4FF'
   const dash = C * Math.min(ratio, 1)
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1E2538" strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--line)" strokeWidth={stroke} />
       <circle
         cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
         strokeLinecap="round"
@@ -189,11 +189,11 @@ export function Ring({ value, target, size = 120, stroke = 10, color = '#00D4FF'
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
         style={{ transition: 'stroke-dasharray 600ms cubic-bezier(.2,.8,.2,1)' }}
       />
-      <text x={size / 2} y={size / 2 - 2} fill="#fff" fontSize={size * 0.22} textAnchor="middle" fontFamily="Inter, system-ui, sans-serif" fontWeight="700">
+      <text x={size / 2} y={size / 2 - 2} fontSize={size * 0.22} textAnchor="middle" fontFamily="Inter, system-ui, sans-serif" fontWeight="700" style={{ fill: 'var(--ink)' }}>
         {Math.round(ratio * 100)}%
       </text>
       {label && (
-        <text x={size / 2} y={size / 2 + size * 0.16} fill="#8B95B2" fontSize="10" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{label}</text>
+        <text x={size / 2} y={size / 2 + size * 0.16} fontSize="10" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif" style={{ fill: 'var(--ink-2)' }}>{label}</text>
       )}
     </svg>
   )
@@ -421,7 +421,7 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
           const y = pad.t + h - (t / niceMax) * h
           return (
             <g key={i}>
-              <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="#1E2538" strokeDasharray="2 4" />
+              <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 4" />
               <text x={pad.l - 6} y={y + 3.5} fill="#5A6685" fontSize="9" textAnchor="end" fontFamily="JetBrains Mono, monospace">{formatter(t)}</text>
             </g>
           )
@@ -522,7 +522,7 @@ export function FunnelBar({ stages }: FunnelBarProps) {
         return (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 64px', alignItems: 'center', gap: 12 }}>
             <div style={{ fontSize: 12, color: '#8B95B2' }}>{s.label}</div>
-            <div style={{ position: 'relative', height: 24, background: '#0F1422', borderRadius: 6, overflow: 'hidden' }}>
+            <div style={{ position: 'relative', height: 24, background: 'var(--bg-2)', borderRadius: 6, overflow: 'hidden' }}>
               <div style={{ position: 'absolute', inset: 0, width: w + '%', background: `linear-gradient(90deg, ${s.color}, ${s.color}99)`, borderRadius: 6 }} />
               <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center', paddingLeft: 10, fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 600, color: '#0A0E1A' }}>
                 {s.value.toLocaleString()}

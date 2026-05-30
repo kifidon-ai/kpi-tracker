@@ -97,6 +97,42 @@ async function run() {
       closed = 4
   `)
 
+  // 008 — tasks table for kanban task tracker
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      title text NOT NULL,
+      description text,
+      status text NOT NULL DEFAULT 'todo',
+      assignee_id text REFERENCES reps(id),
+      created_by_id text NOT NULL REFERENCES reps(id),
+      deadline date,
+      position integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)
+  `)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks (assignee_id)
+  `)
+
+  // 009 — replace single assignee_id with assignee_ids text[]
+  await db.execute(sql`
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_ids text[] NOT NULL DEFAULT '{}'
+  `)
+  await db.execute(sql`
+    UPDATE tasks SET assignee_ids = ARRAY[assignee_id] WHERE assignee_id IS NOT NULL AND assignee_ids = '{}'
+  `)
+  await db.execute(sql`
+    ALTER TABLE tasks DROP COLUMN IF EXISTS assignee_id
+  `)
+  await db.execute(sql`
+    DROP INDEX IF EXISTS idx_tasks_assignee
+  `)
+
   console.log('Migrations complete')
   process.exit(0)
 }

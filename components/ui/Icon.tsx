@@ -52,6 +52,24 @@ export function Icon({ name, size = 16, color = 'currentColor', stroke = 1.75 }:
       return <svg {...props}><path d="M12 5v14M5 12h14"/></svg>
     case 'minus':
       return <svg {...props}><path d="M5 12h14"/></svg>
+    case 'board':
+      return <svg {...props}><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/></svg>
+    case 'x':
+      return <svg {...props}><path d="M6 6l12 12M18 6 6 18"/></svg>
+    case 'search':
+      return <svg {...props}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+    case 'sun':
+      return <svg {...props}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    case 'moon':
+      return <svg {...props}><path d="M20 14.5A7.5 7.5 0 0 1 9.5 4 6 6 0 1 0 20 14.5Z"/></svg>
+    case 'bell':
+      return <svg {...props}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    case 'bell-off':
+      return <svg {...props}><path d="M8.56 2.9A6 6 0 0 1 18 8c0 2.8-.7 5-1.6 6.6M6.5 6.5C6.2 7 6 7.5 6 8c0 7-3 9-3 9h12M13.73 21a2 2 0 0 1-3.46 0M2 2l20 20"/></svg>
+    case 'volume':
+      return <svg {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+    case 'volume-off':
+      return <svg {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
     default:
       return null
   }

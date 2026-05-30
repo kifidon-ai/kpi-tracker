@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 const ALLOWED_DOMAIN = 'stepscale.ai'
 
@@ -79,31 +80,35 @@ export default function LoginPage() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#0A0E1A',
+      background: 'var(--bg-1)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       padding: 24,
+      position: 'relative',
     }}>
+      <div style={{ position: 'absolute', top: 20, right: 20 }}>
+        <ThemeToggle />
+      </div>
       <div style={{ width: '100%', maxWidth: 400 }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40, justifyContent: 'center' }}>
           <div style={{ width: 40, height: 40, borderRadius: 11, background: 'linear-gradient(135deg, #00D4FF, #3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path d="M3 18L9 12L13 16L21 6" stroke="#0A0E1A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="21" cy="6" r="2" fill="#0A0E1A" />
+              <path d="M3 18L9 12L13 16L21 6" stroke="var(--accent-text)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="21" cy="6" r="2" fill="var(--accent-text)" />
             </svg>
           </div>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.4, color: '#fff' }}>Stepscale Sales</div>
-            <div style={{ fontSize: 11, color: '#5A6685', fontFamily: 'JetBrains Mono, monospace' }}>KPI Dashboard</div>
+            <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.4, color: 'var(--ink)' }}>Stepscale Sales</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'JetBrains Mono, monospace' }}>KPI Dashboard</div>
           </div>
         </div>
 
         {/* Card */}
         <div style={{
-          background: 'linear-gradient(180deg, #161B2C, #131826)',
-          border: '1px solid #1E2538',
+          background: 'linear-gradient(180deg, var(--card-top), var(--card-bottom))',
+          border: '1px solid var(--line)',
           borderRadius: 16,
           padding: 32,
         }}>
@@ -111,14 +116,14 @@ export default function LoginPage() {
             <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
               {mode === 'login' ? 'Sign in' : 'Create account'}
             </h1>
-            <p style={{ fontSize: 13, color: '#5A6685', margin: '6px 0 0' }}>
+            <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: '6px 0 0' }}>
               {mode === 'login' ? 'Welcome back to your dashboard.' : `Only @${ALLOWED_DOMAIN} accounts are allowed.`}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+              <label style={{ fontSize: 11, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, display: 'block', marginBottom: 6 }}>
                 Email
               </label>
               <input
@@ -130,10 +135,10 @@ export default function LoginPage() {
                 style={{
                   width: '100%',
                   padding: '10px 12px',
-                  background: '#0F1422',
-                  border: '1px solid #262E45',
+                  background: 'var(--input-bg)',
+                  border: '1px solid var(--line-2)',
                   borderRadius: 8,
-                  color: '#fff',
+                  color: 'var(--ink)',
                   fontSize: 14,
                   outline: 'none',
                 }}
@@ -141,7 +146,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+              <label style={{ fontSize: 11, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, display: 'block', marginBottom: 6 }}>
                 Password
               </label>
               <input
@@ -154,10 +159,10 @@ export default function LoginPage() {
                 style={{
                   width: '100%',
                   padding: '10px 12px',
-                  background: '#0F1422',
-                  border: '1px solid #262E45',
+                  background: 'var(--input-bg)',
+                  border: '1px solid var(--line-2)',
                   borderRadius: 8,
-                  color: '#fff',
+                  color: 'var(--ink)',
                   fontSize: 14,
                   outline: 'none',
                 }}
@@ -186,7 +191,7 @@ export default function LoginPage() {
                   background: '#FFB80022',
                   border: '1px solid #FFB80044',
                   borderRadius: 8,
-                  color: resendLoading ? '#5A6685' : '#FFB800',
+                  color: resendLoading ? 'var(--ink-3)' : '#FFB800',
                   fontSize: 12.5,
                   fontWeight: 600,
                   cursor: resendLoading ? 'not-allowed' : 'pointer',
@@ -203,8 +208,8 @@ export default function LoginPage() {
               style={{
                 marginTop: 4,
                 padding: '12px 20px',
-                background: loading ? '#1E2538' : '#00D4FF',
-                color: loading ? '#5A6685' : '#0A0E1A',
+                background: loading ? 'var(--line)' : '#00D4FF',
+                color: loading ? 'var(--ink-3)' : 'var(--accent-text)',
                 borderRadius: 10,
                 fontWeight: 700,
                 fontSize: 14,
@@ -216,7 +221,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: '#5A6685' }}>
+          <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: 'var(--ink-3)' }}>
             {mode === 'login' ? (
               <>Don&apos;t have an account?{' '}
                 <button onClick={() => { setMode('signup'); setError(''); setMessage(''); setShowResend(false) }} style={{ color: '#00D4FF', fontWeight: 600, textDecoration: 'underline' }}>

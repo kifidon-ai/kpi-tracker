@@ -1,20 +1,19 @@
 @import "tailwindcss";
 @source "../app/**/*.{ts,tsx}";
 @source "../components/**/*.{ts,tsx}";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 @theme {
-  --color-bg-0:    #070A14;
-  --color-bg-1:    #0A0E1A;
-  --color-bg-2:    #0F1422;
-  --color-panel:   #131826;
-  --color-panel-2: #171D2E;
-  --color-line:    #1E2538;
-  --color-line-2:  #262E45;
-  --color-ink:     #FFFFFF;
-  --color-ink-1:   #D8DEEF;
-  --color-ink-2:   #8B95B2;
-  --color-ink-3:   #5A6685;
+  --color-bg-0:    var(--bg-0);
+  --color-bg-1:    var(--bg-1);
+  --color-bg-2:    var(--bg-2);
+  --color-panel:   var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line:    var(--line);
+  --color-line-2:  var(--line-2);
+  --color-ink:     var(--ink);
+  --color-ink-1:   var(--ink-1);
+  --color-ink-2:   var(--ink-2);
+  --color-ink-3:   var(--ink-3);
   --color-cyan:    #00D4FF;
   --color-magenta: #FF3D9A;
   --color-amber:   #FFB800;
@@ -22,9 +21,11 @@
   --color-violet:  #8B5CF6;
   --color-red:     #FF5468;
   --color-blue:    #3B82F6;
+  --color-muted:   var(--muted);
 }
 
-:root {
+:root,
+[data-theme="dark"] {
   --bg-0: #070A14;
   --bg-1: #0A0E1A;
   --bg-2: #0F1422;
@@ -43,6 +44,44 @@
   --violet: #8B5CF6;
   --red: #FF5468;
   --blue: #3B82F6;
+  --accent-text: #0A0E1A;
+  --header-bg: rgba(10, 14, 26, 0.92);
+  --card-top: #161B2C;
+  --card-bottom: #131826;
+  --column-bg: #0F1422;
+  --column-hover: #161B2C;
+  --input-bg: #0F1422;
+  --tile-bg: #1A2035;
+  --muted: #2A3350;
+  --overlay: rgba(6, 8, 16, 0.75);
+  --scrollbar: #1E2538;
+  --scrollbar-hover: #2C3552;
+}
+
+[data-theme="light"] {
+  --bg-0: #EEF1F7;
+  --bg-1: #F5F7FB;
+  --bg-2: #FFFFFF;
+  --panel: #FFFFFF;
+  --panel-2: #F0F2F7;
+  --line: #DDE2EC;
+  --line-2: #C8CFDC;
+  --ink: #0A0E1A;
+  --ink-1: #1A2235;
+  --ink-2: #5A6685;
+  --ink-3: #8B95B2;
+  --accent-text: #0A0E1A;
+  --header-bg: rgba(255, 255, 255, 0.92);
+  --card-top: #FFFFFF;
+  --card-bottom: #F8F9FC;
+  --column-bg: #FFFFFF;
+  --column-hover: #F0F2F7;
+  --input-bg: #FFFFFF;
+  --tile-bg: #F0F2F7;
+  --muted: #C8CFDC;
+  --overlay: rgba(15, 20, 34, 0.35);
+  --scrollbar: #C8CFDC;
+  --scrollbar-hover: #A8B0C0;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -52,9 +91,10 @@ html, body {
   padding: 0;
   background: var(--bg-1);
   color: var(--ink);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-inter), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  transition: background 200ms ease, color 200ms ease;
 }
 
 button {
@@ -65,14 +105,14 @@ button {
   color: inherit;
 }
 
-input, select { font-family: inherit; }
+input, select, textarea { font-family: inherit; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1E2538; border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #2C3552; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 
 .mono {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono), monospace;
   font-feature-settings: "tnum";
 }

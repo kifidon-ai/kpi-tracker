@@ -60,3 +60,18 @@ export const closed_deals = pgTable('closed_deals', {
   closed_date:   date('closed_date').notNull().default(sql`CURRENT_DATE`),
   created_at:    timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 })
+
+export const tasks = pgTable('tasks', {
+  id:             uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  title:          text('title').notNull(),
+  description:    text('description'),
+  status:         text('status').notNull().default('todo'),
+  assignee_ids:   text('assignee_ids').array().notNull().default(sql`'{}'::text[]`),
+  created_by_id:  text('created_by_id').notNull().references(() => reps.id),
+  deadline:       date('deadline'),
+  position:       integer('position').notNull().default(0),
+  created_at:     timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  updated_at:     timestamp('updated_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_tasks_status').on(t.status),
+])

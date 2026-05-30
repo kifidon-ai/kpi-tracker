@@ -187,13 +187,13 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setOffset((o) => o + 1)}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none"
               >←</button>
               <span className="text-[12px] text-ink-2 font-medium w-[130px] text-center">{label}</span>
               <button
                 onClick={() => setOffset((o) => Math.max(0, o - 1))}
                 disabled={offset === 0}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-white hover:bg-[#1E2538] transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
               >→</button>
             </div>
             <Segmented
@@ -216,7 +216,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
               style={{ background: 'linear-gradient(135deg, #00D4FF, #8B5CF6)' }}>
               <Icon name="team" size={12} color="#0A0E1A" />
             </div>
-            <span className="text-[12px] font-semibold" style={{ color: isTeam ? '#00D4FF' : '#8B95B2' }}>Team</span>
+            <span className="text-[12px] font-semibold" style={{ color: isTeam ? '#00D4FF' : 'var(--ink-2)' }}>Team</span>
           </button>
           {activeReps.map((r) => (
             <button
@@ -229,7 +229,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
               }}
             >
               <Avatar rep={r} size={22} />
-              <span className="text-[12px] font-semibold" style={{ color: activeRep === r.id ? r.color : '#8B95B2' }}>
+              <span className="text-[12px] font-semibold" style={{ color: activeRep === r.id ? r.color : 'var(--ink-2)' }}>
                 {r.name.split(' ')[0]}
               </span>
             </button>
@@ -254,13 +254,13 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
               <div key={k} className={`flex items-center ${i < KEY_METRICS.length - 1 ? 'flex-1' : 'flex-none'}`}>
                 <div className="flex flex-col gap-1.5 shrink-0">
                   <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: def.color }}>{def.short}</div>
-                  <div className="mono text-[36px] font-extrabold text-white leading-none">{v}</div>
+                  <div className="mono text-[36px] font-extrabold text-ink leading-none">{v}</div>
                   <div className="text-[10px] text-ink-3">{def.label}</div>
                 </div>
                 {i < KEY_METRICS.length - 1 && (
                   <div className="flex-1 flex items-center px-4 min-w-10">
-                    <div className="flex-1 h-px bg-[#2A3350]" />
-                    <span className="text-[#2A3350] text-[10px] leading-none">▶</span>
+                    <div className="flex-1 h-px bg-muted" />
+                    <span className="text-muted text-[10px] leading-none">▶</span>
                   </div>
                 )}
               </div>
@@ -279,7 +279,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
                 <div key={k} className="flex flex-col items-center gap-2.5 py-1">
                   <Ring value={v} target={t} color={def.color} size={110} stroke={9} label={def.short} />
                   <div className="text-center">
-                    <div className="mono text-[13px] font-bold">
+                    <div className="mono text-[13px] font-bold text-ink">
                       {v}<span className="text-ink-3 font-normal"> / {t}</span>
                     </div>
                     <div className="text-[10.5px] text-ink-2 mt-0.5">{def.label}</div>
@@ -405,7 +405,7 @@ function LogTile({ def, value, target, disabled, onInc, onDec }: LogTileProps) {
     <div
       className="rounded-[11px] p-3 flex flex-col gap-2 justify-between"
       style={{
-        background: '#1A2035',
+        background: 'var(--tile-bg)',
         border: `1px solid ${def.color}44`,
         minHeight: disabled ? 'auto' : 130,
       }}
@@ -419,7 +419,7 @@ function LogTile({ def, value, target, disabled, onInc, onDec }: LogTileProps) {
       </div>
       <div>
         <div className="flex items-baseline gap-1.5">
-          <span className="mono text-[26px] font-extrabold text-white leading-none">{value}</span>
+          <span className="mono text-[26px] font-extrabold text-ink leading-none">{value}</span>
           {target != null && target > 0 && <span className="mono text-[10px] text-ink-3">/ {target}</span>}
         </div>
         {target != null && target > 0 && (
@@ -440,7 +440,7 @@ function LogTile({ def, value, target, disabled, onInc, onDec }: LogTileProps) {
           <button
             onClick={onDec}
             className="py-2 px-2.5 rounded-lg font-bold text-[12px] inline-flex items-center justify-center text-ink-2 shrink-0"
-            style={{ background: '#252D45', border: '1px solid #333E5C' }}
+            style={{ background: 'var(--line-2)', border: '1px solid var(--line)' }}
           >
             −1
           </button>

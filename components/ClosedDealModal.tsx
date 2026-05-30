@@ -29,7 +29,7 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
       <div
         className="w-full max-w-md rounded-2xl border border-line-2 p-6 shadow-2xl"
-        style={{ background: 'linear-gradient(180deg, #161B2C, #131826)' }}
+        style={{ background: 'linear-gradient(180deg, var(--card-top), var(--card-bottom))' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -52,10 +52,10 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
               onChange={(e) => setCompanyName(e.target.value)}
               placeholder="Acme Corp"
               autoFocus
-              className="w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-white outline-none transition-all placeholder:text-ink-3"
-              style={{ background: '#0A0E1A', border: '1px solid #262E45' }}
+              className="w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-ink outline-none transition-all placeholder:text-ink-3"
+              style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
               onFocus={(e) => (e.currentTarget.style.borderColor = '#00E5A066')}
-              onBlur={(e) => (e.currentTarget.style.borderColor = '#262E45')}
+              onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
             />
           </div>
 
@@ -72,10 +72,10 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
                   placeholder="0"
                   min="0"
                   step="1"
-                  className="mono w-full pl-7 pr-3.5 py-2.5 rounded-lg text-[14px] font-semibold text-white outline-none transition-all placeholder:text-ink-3"
-                  style={{ background: '#0A0E1A', border: '1px solid #262E45' }}
+                  className="mono w-full pl-7 pr-3.5 py-2.5 rounded-lg text-[14px] font-semibold text-ink outline-none transition-all placeholder:text-ink-3"
+                  style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = '#00E5A066')}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = '#262E45')}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
                 />
               </div>
             </div>
@@ -86,10 +86,10 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
                 type="date"
                 value={closedDate}
                 onChange={(e) => setClosedDate(e.target.value)}
-                className="mono w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-white outline-none transition-all"
-                style={{ background: '#0A0E1A', border: '1px solid #262E45', colorScheme: 'dark' }}
+                className="mono w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-ink outline-none transition-all"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = '#00E5A066')}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '#262E45')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
               />
             </div>
           </div>
@@ -97,7 +97,7 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
           {/* ARR preview */}
           <div
             className="px-4 py-3 rounded-xl flex justify-between items-center"
-            style={{ background: price > 0 ? '#00E5A011' : '#ffffff08', border: `1px solid ${price > 0 ? '#00E5A033' : '#1E2538'}` }}
+            style={{ background: price > 0 ? '#00E5A011' : 'var(--bg-2)', border: `1px solid ${price > 0 ? '#00E5A033' : 'var(--line)'}` }}
           >
             <span className="text-[12px] text-ink-2 font-medium">ARR contribution</span>
             <span className="mono text-[15px] font-bold" style={{ color: price > 0 ? '#00E5A0' : '#3A4460' }}>

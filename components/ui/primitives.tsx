@@ -17,8 +17,8 @@ export function Card({ children, style, padding = 20, className }: CardProps) {
     <div
       className={className}
       style={{
-        background: 'linear-gradient(180deg, #161B2C, #131826)',
-        border: '1px solid #1E2538',
+        background: 'linear-gradient(180deg, var(--card-top), var(--card-bottom))',
+        border: '1px solid var(--line)',
         borderRadius: 14,
         padding,
         ...style,
@@ -42,7 +42,7 @@ interface SegmentedProps {
 
 export function Segmented({ value, onChange, options }: SegmentedProps) {
   return (
-    <div style={{ display: 'inline-flex', background: '#0F1422', border: '1px solid #1E2538', borderRadius: 10, padding: 3 }}>
+    <div style={{ display: 'inline-flex', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
       {options.map((o) => {
         const active = o.value === value
         return (
@@ -53,7 +53,7 @@ export function Segmented({ value, onChange, options }: SegmentedProps) {
               padding: '7px 14px',
               fontSize: 12,
               fontWeight: 600,
-              color: active ? '#0A0E1A' : '#8B95B2',
+              color: active ? 'var(--accent-text)' : 'var(--ink-2)',
               background: active ? '#00D4FF' : 'transparent',
               borderRadius: 7,
               transition: 'all 150ms',
@@ -84,7 +84,7 @@ export function Pill({ children, color = '#00D4FF', subtle = true }: PillProps) 
         padding: '3px 9px',
         borderRadius: 99,
         background: subtle ? color + '22' : color,
-        color: subtle ? color : '#0A0E1A',
+        color: subtle ? color : 'var(--accent-text)',
         fontSize: 11,
         fontWeight: 600,
         fontFamily: 'JetBrains Mono, monospace',
@@ -103,7 +103,7 @@ interface DeltaProps {
 }
 
 export function Delta({ value, suffix = '%' }: DeltaProps) {
-  if (value == null || isNaN(value)) return <span style={{ color: '#5A6685' }}>—</span>
+  if (value == null || isNaN(value)) return <span style={{ color: 'var(--ink-3)' }}>—</span>
   const up = value >= 0
   const c = up ? '#00E5A0' : '#FF5468'
   return (
@@ -129,21 +129,21 @@ interface KPIProps {
 export function KPI({ label, value, delta, color = '#00D4FF', target, formatter = String, sub }: KPIProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 11, color: '#8B95B2', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <div className="mono" style={{ fontSize: 32, fontWeight: 700, color: '#fff', letterSpacing: -0.5 }}>{formatter(value)}</div>
+        <div className="mono" style={{ fontSize: 32, fontWeight: 700, color: 'var(--ink)', letterSpacing: -0.5 }}>{formatter(value)}</div>
         {delta != null && <Delta value={delta} />}
       </div>
       {target != null && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
           <TargetBar value={value} target={target} color={color} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#5A6685', fontFamily: 'JetBrains Mono, monospace' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--ink-3)', fontFamily: 'JetBrains Mono, monospace' }}>
             <span>{Math.round(pct(value, target))}% of target</span>
             <span>goal {formatter(target)}</span>
           </div>
         </div>
       )}
-      {sub && <div style={{ fontSize: 11, color: '#5A6685' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
     </div>
   )
 }
@@ -157,7 +157,7 @@ interface SectionTitleProps {
 export function SectionTitle({ children, right }: SectionTitleProps) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#D8DEEF', letterSpacing: 0.2 }}>{children}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-1)', letterSpacing: 0.2 }}>{children}</div>
       {right}
     </div>
   )
@@ -174,7 +174,7 @@ interface TargetBarProps {
 export function TargetBar({ value, target, color = '#00D4FF', height = 6 }: TargetBarProps) {
   const r = Math.min(1, target ? value / target : 0)
   return (
-    <div style={{ position: 'relative', height, background: '#1E2538', borderRadius: height / 2, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', height, background: 'var(--line)', borderRadius: height / 2, overflow: 'hidden' }}>
       <div
         style={{
           position: 'absolute',
