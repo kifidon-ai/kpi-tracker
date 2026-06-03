@@ -32,10 +32,8 @@ function formatDeadline(deadline: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function isOverdue(deadline: string | null, status: TaskStatus): boolean {
-  if (!deadline || status === 'done') return false
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+function isOverdue(deadline: string | null, status: TaskStatus, today: Date | null): boolean {
+  if (!deadline || status === 'done' || !today) return false
   return new Date(deadline + 'T00:00:00') < today
 }
 
@@ -95,11 +93,17 @@ export function TaskTracker({ reps, currentRepId, notify }: TaskTrackerProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState<string>('')
   const [showDone, setShowDone] = useState(false)
+  const [today, setToday] = useState<Date | null>(null)
 
   const currentRepIdRef = useRef(currentRepId)
   const notifyRef = useRef(notify)
   useEffect(() => { currentRepIdRef.current = currentRepId }, [currentRepId])
   useEffect(() => { notifyRef.current = notify }, [notify])
+  useEffect(() => {
+    const t = new Date()
+    t.setHours(0, 0, 0, 0)
+    setToday(t)
+  }, [])
 
   useEffect(() => {
     getTasksAction().then(setTasks).finally(() => setLoading(false))
@@ -235,7 +239,7 @@ export function TaskTracker({ reps, currentRepId, notify }: TaskTrackerProps) {
   }
 
   const myTasks = tasks.filter((t) => (t.assignee_ids ?? []).includes(currentRepId ?? '') && t.status !== 'done').length
-  const overdueCount = tasks.filter((t) => isOverdue(t.deadline, t.status as TaskStatus)).length
+  const overdueCount = tasks.filter((t) => isOverdue(t.deadline, t.status as TaskStatus, today)).length
   const hasFilters = searchQuery.trim() !== '' || assigneeFilter !== ''
 
   if (loading) {
@@ -355,7 +359,7 @@ export function TaskTracker({ reps, currentRepId, notify }: TaskTrackerProps) {
 
         {activeTasks.map((task) => {
           const assignees = (task.assignee_ids ?? []).map((id) => repById[id]).filter(Boolean) as Rep[]
-          const overdue = isOverdue(task.deadline, task.status as TaskStatus)
+          const overdue = isOverdue(task.deadline, task.status as TaskStatus, today)
           const inProgress = task.status === 'in_progress'
 
           return (
