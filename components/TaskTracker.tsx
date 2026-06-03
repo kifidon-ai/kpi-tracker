@@ -395,7 +395,7 @@ export function TaskTracker({ reps, currentRepId, notify }: TaskTrackerProps) {
                   </span>
                 </div>
                 {task.description && (
-                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2, wordBreak: 'break-word' }}>
                     {task.description}
                   </div>
                 )}
