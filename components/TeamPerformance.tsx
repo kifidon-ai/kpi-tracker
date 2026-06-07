@@ -5,7 +5,7 @@ import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 import { fmtMoney, fmtNum, pct } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
 import { LineChart, FunnelBar, Speedometer, ArrGrowthChart } from './charts'
-import { getActivityCountsAction, getTrendAction, getDiscByHourAction } from '@/app/actions'
+import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getShowRatesAction, getAttendedConversionsAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -89,6 +89,15 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const [repTotals, setRepTotals]   = useState<Record<string, Record<string, number>>>({})
   const [trendRows, setTrendRows]   = useState<{ date: string; metric_key: string; total: number }[]>([])
   const [discByHour, setDiscByHour] = useState<{ hour: number; total: number }[]>([])
+  const [showRates, setShowRates]   = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
+  const [attendedConversions, setAttendedConversions] = useState<Record<string, {
+    discBooked: number
+    discAttended: number
+    discToDemoConversions: number
+    demoBooked: number
+    demoAttended: number
+    demoToClosedConversions: number
+  }>>({})
 
   function handleRangeChange(v: string) {
     setRange(v as Range)
@@ -181,6 +190,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
   useEffect(() => {
     getDiscByHourAction().then(setDiscByHour)
+  }, [])
+
+  useEffect(() => {
+    getShowRatesAction().then(setShowRates)
+  }, [])
+
+  useEffect(() => {
+    getAttendedConversionsAction().then(setAttendedConversions)
   }, [])
 
   // Trend charts: aggregated server-side, bucketed here
@@ -314,6 +331,21 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const fmtArrTick = (v: number) =>
     v === 0 ? '$0' : v >= 1000 ? `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `$${v}`
 
+  // Show rate helpers — derived from calendar table (all time)
+  function repShowRate(repId: string, type: 'disc' | 'demo') {
+    const row = showRates.find((r) => r.rep_id === repId && r.activity_type === type)
+    if (!row || row.total === 0) return null
+    return { attended: row.attended, total: row.total, rate: Math.round(row.attended / row.total * 100) }
+  }
+  const teamDiscShow = showRates
+    .filter((r) => r.activity_type === 'disc')
+    .reduce((acc, r) => ({ attended: acc.attended + r.attended, total: acc.total + r.total }), { attended: 0, total: 0 })
+  const teamDemoShow = showRates
+    .filter((r) => r.activity_type === 'demo')
+    .reduce((acc, r) => ({ attended: acc.attended + r.attended, total: acc.total + r.total }), { attended: 0, total: 0 })
+  const teamDiscRate = teamDiscShow.total ? Math.round(teamDiscShow.attended / teamDiscShow.total * 100) : null
+  const teamDemoRate = teamDemoShow.total ? Math.round(teamDemoShow.attended / teamDemoShow.total * 100) : null
+
   const t = totals
   const pt = prevTotals
 
@@ -394,13 +426,31 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
         {/* Left: KPI grid + conversion pipeline */}
         <div className="flex flex-col gap-3.5">
-          <div className="grid grid-cols-3 gap-3.5">
+          <div className="grid grid-cols-4 gap-3.5">
             <Card><KPI label="Dials"         value={t.dials  ?? 0} target={tgt?.dials}  color="#00D4FF" formatter={fmtNum} delta={delta(t.dials ?? 0, pt.dials ?? 0)} /></Card>
             <Card><KPI label="Voicemails"    value={t.vm     ?? 0}                       color="#5A6685" formatter={fmtNum} delta={delta(t.vm    ?? 0, pt.vm    ?? 0)} /></Card>
             <Card><KPI label="Conversations" value={t.conv   ?? 0} target={tgt?.conv}   color="#8B5CF6" formatter={fmtNum} delta={delta(t.conv  ?? 0, pt.conv  ?? 0)} /></Card>
             <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
             <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
             <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
+            <Card>
+              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FFB800] mb-1">Disc show rate</div>
+              <div className="mono text-[28px] font-extrabold text-ink leading-none">
+                {teamDiscRate !== null ? `${teamDiscRate}%` : '—'}
+              </div>
+              <div className="mono text-[10px] text-ink-3 mt-1">
+                {teamDiscShow.attended}/{teamDiscShow.total} attended
+              </div>
+            </Card>
+            <Card>
+              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo show rate</div>
+              <div className="mono text-[28px] font-extrabold text-ink leading-none">
+                {teamDemoRate !== null ? `${teamDemoRate}%` : '—'}
+              </div>
+              <div className="mono text-[10px] text-ink-3 mt-1">
+                {teamDemoShow.attended}/{teamDemoShow.total} attended
+              </div>
+            </Card>
           </div>
 
           {/* Conversion pipeline */}
@@ -557,16 +607,18 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               <tr className="text-[10px] uppercase tracking-[0.5px]">
                 <th className="text-left px-4 py-2.5 font-semibold border-b border-line text-ink-3">Rep</th>
                 {([
-                  { label: 'Dials',  color: '#00D4FF', hl: false },
-                  { label: 'Conv',   color: '#8B5CF6', hl: false },
-                  { label: 'VM',     color: '#5A6685', hl: false },
-                  { label: 'Disc',   color: '#00E5A0', hl: true  },
-                  { label: 'Demo',   color: '#FF3D9A', hl: false },
-                  { label: 'Closed', color: '#00E5A0', hl: true  },
+                  { label: 'Dials',          color: '#00D4FF', hl: false },
+                  { label: 'Conv',           color: '#8B5CF6', hl: false },
+                  { label: 'VM',             color: '#5A6685', hl: false },
+                  { label: 'Disc',           color: '#FFB800', hl: true  },
+                  { label: 'Disc Show',      color: '#FFB800', hl: true  },
+                  { label: 'Demo',           color: '#FF3D9A', hl: false },
+                  { label: 'Demo Show',      color: '#FF3D9A', hl: false },
+                  { label: 'Closed',         color: '#00E5A0', hl: true  },
                 ] as const).map((col) => (
                   <th
                     key={col.label}
-                    className={`text-right px-4 py-2.5 font-semibold border-b border-line ${col.hl ? 'bg-[#00E5A0]/[0.05]' : ''}`}
+                    className={`text-right px-4 py-2.5 font-semibold border-b border-line ${col.hl ? 'bg-[#FFB800]/[0.04]' : ''}`}
                     style={{ color: col.color }}
                   >
                     {col.label}
@@ -587,7 +639,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 const discRate = conv  ? disc   / conv  * 100 : 0
                 const demoRate = disc  ? demo   / disc  * 100 : 0
                 const winRate  = demo  ? closed / demo  * 100 : 0
+                const discShow = repShowRate(rep.id, 'disc')
+                const demoShow = repShowRate(rep.id, 'demo')
                 if (dials + conv + vm + disc + demo + closed === 0) return null
+
+                function showColor(rate: number) {
+                  return rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
+                }
+
                 return (
                   <tr key={rep.id} className="border-b border-[#1A1F30]">
                     <td className="px-4 py-3">
@@ -611,13 +670,29 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                     <td className="px-4 py-3 text-right">
                       <span className="mono text-[12px] text-ink-2">{vm || '—'}</span>
                     </td>
-                    <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
+                    <td className="px-4 py-3 text-right bg-[#FFB800]/[0.04]">
                       <span className="mono text-[12px] font-semibold text-ink">{disc || '—'}</span>
                       {discRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{discRate.toFixed(0)}%</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right bg-[#FFB800]/[0.04]">
+                      {discShow ? (
+                        <>
+                          <span className="mono text-[13px] font-bold" style={{ color: showColor(discShow.rate) }}>{discShow.rate}%</span>
+                          <div className="mono text-[9px] text-ink-3">{discShow.attended}/{discShow.total}</div>
+                        </>
+                      ) : <span className="text-ink-3 text-[11px]">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="mono text-[12px] font-semibold text-ink">{demo || '—'}</span>
                       {demoRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{demoRate.toFixed(0)}%</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {demoShow ? (
+                        <>
+                          <span className="mono text-[13px] font-bold" style={{ color: showColor(demoShow.rate) }}>{demoShow.rate}%</span>
+                          <div className="mono text-[9px] text-ink-3">{demoShow.attended}/{demoShow.total}</div>
+                        </>
+                      ) : <span className="text-ink-3 text-[11px]">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
                       <span className="mono text-[12px] font-bold text-mint">{closed || '—'}</span>
@@ -628,7 +703,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               })}
               {reps.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
                 </tr>
               )}
             </tbody>
@@ -636,73 +711,147 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </div>
       </Card>
 
-      {/* Disc → Demo + Demo → Closed ratio per rep */}
+      {/* Conversion funnel per rep */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <SectionTitle>Conversion rates · per rep</SectionTitle>
+        <div className="flex items-center justify-between mb-3">
+          <SectionTitle>Conversion funnel · per rep</SectionTitle>
           <span className="text-[10px] text-ink-3">all time</span>
         </div>
-        {/* column headers */}
-        <div className="flex items-center gap-3 mb-2 pl-[88px]">
-          <div className="flex-1 text-[10px] font-semibold uppercase tracking-[0.6px] text-[#FFB800]">Disc Att → Demo</div>
-          <div className="flex-1 text-[10px] font-semibold uppercase tracking-[0.6px] text-[#FF3D9A]">Demo Att → Closed</div>
+        <div className="flex items-center gap-2 mb-3 pl-[88px] text-[10px] font-semibold uppercase tracking-[0.6px]">
+          <div className="flex-1 text-[#FFB800]">Disc booked → attended</div>
+          <div className="flex-1 text-[#FFB800]">Attended → demo booked</div>
+          <div className="flex-1 text-[#FF3D9A]">Demo booked → attended</div>
+          <div className="flex-1 text-[#FF3D9A]">Attended → closed</div>
         </div>
-        <div className="flex flex-col gap-4">
-          {(() => {
-            const rows = reps
-              .map((rep) => ({
-                rep,
-                discAtt:  allTimeRepTotals[rep.id]?.disc_att  ?? 0,
-                demo:     allTimeRepTotals[rep.id]?.demo      ?? 0,
-                demoAtt:  allTimeRepTotals[rep.id]?.demo_att  ?? 0,
-                closed:   allTimeRepTotals[rep.id]?.closed    ?? 0,
-              }))
-              .filter(({ discAtt, demo, demoAtt, closed }) => discAtt + demo + demoAtt + closed > 0)
-              .sort((a, b) => b.discAtt - a.discAtt)
+        <div className="flex flex-col gap-3">
+          {reps.map((rep) => {
+            const conv = attendedConversions[rep.id]
+            if (!conv || (conv.discBooked === 0 && conv.demoBooked === 0)) return null
 
-            function ratioColor(r: number) {
-              return r >= 50 ? '#00E5A0' : r >= 25 ? '#FFB800' : '#FF5468'
+            function convColor(converted: number, total: number) {
+              if (total === 0) return '#3A4460'
+              const rate = (converted / total) * 100
+              return rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
             }
 
-            return rows.map(({ rep, discAtt, demo, demoAtt, closed }) => {
-              const r1 = discAtt > 0 ? (demo    / discAtt) * 100 : 0
-              const r2 = demoAtt > 0 ? (closed  / demoAtt) * 100 : 0
-              return (
-                <div key={rep.id} className="flex items-center gap-3">
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0" style={{ background: rep.color + '28', color: rep.color }}>
+            const discShowRate = conv.discBooked > 0 ? (conv.discAttended / conv.discBooked) * 100 : 0
+            const discConvRate = conv.discAttended > 0 ? (conv.discToDemoConversions / conv.discAttended) * 100 : 0
+            const demoShowRate = conv.demoBooked > 0 ? (conv.demoAttended / conv.demoBooked) * 100 : 0
+            const demoConvRate = conv.demoAttended > 0 ? (conv.demoToClosedConversions / conv.demoAttended) * 100 : 0
+
+            return (
+              <div key={rep.id} className="flex items-center gap-2 p-3 rounded-lg" style={{ background: 'var(--bg-2)' }}>
+                <div className="flex items-center gap-2 w-20 shrink-0">
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold" style={{ background: rep.color + '28', color: rep.color }}>
                     {rep.initials}
                   </div>
-                  <div className="mono text-[11px] font-semibold w-14 shrink-0 truncate">{rep.name.split(' ')[0]}</div>
+                  <div className="mono text-[10px] font-semibold truncate">{rep.name.split(' ')[0]}</div>
+                </div>
 
-                  {/* Disc Att → Demo */}
-                  <div className="flex-1 flex items-center gap-2">
-                    <div className="flex-1 h-[12px] bg-[#FF5468]/30 rounded overflow-hidden">
-                      <div className="h-full rounded-l transition-all duration-500" style={{ width: discAtt > 0 ? `${Math.min(r1, 100)}%` : '0%', background: '#00E5A0' }} />
-                    </div>
-                    <div className="w-[58px] shrink-0 text-right">
-                      <span className="mono text-[14px] font-extrabold" style={{ color: discAtt > 0 ? ratioColor(r1) : '#3A4460' }}>
-                        {discAtt > 0 ? `${r1.toFixed(0)}%` : '—'}
-                      </span>
-                      {discAtt > 0 && <div className="mono text-[9px] text-ink-3">{demo}/{discAtt}</div>}
-                    </div>
+                {/* Disc booked → attended */}
+                <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                  <div className="flex-1 h-2 bg-[#FFB800]/20 rounded overflow-hidden">
+                    {conv.discBooked > 0 && (
+                      <div
+                        className="h-full rounded-l transition-all duration-500"
+                        style={{ width: `${discShowRate}%`, background: convColor(conv.discAttended, conv.discBooked) }}
+                      />
+                    )}
                   </div>
-
-                  {/* Demo Att → Closed */}
-                  <div className="flex-1 flex items-center gap-2">
-                    <div className="flex-1 h-[12px] bg-[#FF5468]/30 rounded overflow-hidden">
-                      <div className="h-full rounded-l transition-all duration-500" style={{ width: demoAtt > 0 ? `${Math.min(r2, 100)}%` : '0%', background: '#FF3D9A' }} />
-                    </div>
-                    <div className="w-[58px] shrink-0 text-right">
-                      <span className="mono text-[14px] font-extrabold" style={{ color: demoAtt > 0 ? ratioColor(r2) : '#3A4460' }}>
-                        {demoAtt > 0 ? `${r2.toFixed(0)}%` : '—'}
-                      </span>
-                      {demoAtt > 0 && <div className="mono text-[9px] text-ink-3">{closed}/{demoAtt}</div>}
-                    </div>
+                  <div className="w-20 shrink-0 text-right">
+                    {conv.discBooked > 0 ? (
+                      <>
+                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.discAttended, conv.discBooked) }}>
+                          {Math.round(discShowRate)}%
+                        </div>
+                        <div className="mono text-[9px] text-ink-3">{conv.discAttended}/{conv.discBooked}</div>
+                      </>
+                    ) : (
+                      <span className="text-ink-3 text-[10px]">—</span>
+                    )}
                   </div>
                 </div>
-              )
-            })
-          })()}
+
+                {/* Disc attended → demo */}
+                <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                  <div className="flex-1 h-2 bg-[#FFB800]/20 rounded overflow-hidden">
+                    {conv.discAttended > 0 && (
+                      <div
+                        className="h-full rounded-l transition-all duration-500"
+                        style={{ width: `${discConvRate}%`, background: convColor(conv.discToDemoConversions, conv.discAttended) }}
+                      />
+                    )}
+                  </div>
+                  <div className="w-20 shrink-0 text-right">
+                    {conv.discAttended > 0 ? (
+                      <>
+                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.discToDemoConversions, conv.discAttended) }}>
+                          {Math.round(discConvRate)}%
+                        </div>
+                        <div className="mono text-[9px] text-ink-3">{conv.discToDemoConversions}/{conv.discAttended}</div>
+                      </>
+                    ) : (
+                      <span className="text-ink-3 text-[10px]">—</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Demo booked → attended */}
+                <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                  <div className="flex-1 h-2 bg-[#FF3D9A]/20 rounded overflow-hidden">
+                    {conv.demoBooked > 0 && (
+                      <div
+                        className="h-full rounded-l transition-all duration-500"
+                        style={{ width: `${demoShowRate}%`, background: convColor(conv.demoAttended, conv.demoBooked) }}
+                      />
+                    )}
+                  </div>
+                  <div className="w-20 shrink-0 text-right">
+                    {conv.demoBooked > 0 ? (
+                      <>
+                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.demoAttended, conv.demoBooked) }}>
+                          {Math.round(demoShowRate)}%
+                        </div>
+                        <div className="mono text-[9px] text-ink-3">{conv.demoAttended}/{conv.demoBooked}</div>
+                      </>
+                    ) : (
+                      <span className="text-ink-3 text-[10px]">—</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Demo attended → closed */}
+                <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                  <div className="flex-1 h-2 bg-[#FF3D9A]/20 rounded overflow-hidden">
+                    {conv.demoAttended > 0 && (
+                      <div
+                        className="h-full rounded-l transition-all duration-500"
+                        style={{ width: `${demoConvRate}%`, background: convColor(conv.demoToClosedConversions, conv.demoAttended) }}
+                      />
+                    )}
+                  </div>
+                  <div className="w-20 shrink-0 text-right">
+                    {conv.demoAttended > 0 ? (
+                      <>
+                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.demoToClosedConversions, conv.demoAttended) }}>
+                          {Math.round(demoConvRate)}%
+                        </div>
+                        <div className="mono text-[9px] text-ink-3">{conv.demoToClosedConversions}/{conv.demoAttended}</div>
+                      </>
+                    ) : (
+                      <span className="text-ink-3 text-[10px]">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          {reps.every((r) => {
+            const conv = attendedConversions[r.id]
+            return !conv || (conv.discBooked === 0 && conv.demoBooked === 0)
+          }) && (
+            <div className="py-6 text-center text-ink-3 text-[12px]">No meetings yet — will track disc→attended→demo→attended→closed</div>
+          )}
         </div>
       </Card>
 

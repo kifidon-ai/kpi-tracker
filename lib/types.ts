@@ -6,6 +6,7 @@ import type {
   targets,
   closed_deals,
   tasks,
+  calendar,
 } from '@/db/schema'
 
 export type Rep              = InferSelectModel<typeof reps>
@@ -14,6 +15,9 @@ export type ActivityLogEntry = InferSelectModel<typeof activity_log_entries>
 export type Target           = InferSelectModel<typeof targets>
 export type ClosedDeal       = InferSelectModel<typeof closed_deals>
 export type Task             = InferSelectModel<typeof tasks>
+export type CalendarEvent    = InferSelectModel<typeof calendar>
+export type CalendarStatus   = 'scheduled' | 'attended' | 'no_show' | 'rescheduled'
+export type CalendarIntent   = 'high' | 'medium' | 'low'
 export type TaskStatus       = 'todo' | 'in_progress' | 'done'
 
 export interface Totals {

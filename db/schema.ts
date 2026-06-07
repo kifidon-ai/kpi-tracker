@@ -27,17 +27,19 @@ export const clients = pgTable('clients', {
 })
 
 export const activity_log_entries = pgTable('activity_log_entries', {
-  id:         uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  rep_id:     text('rep_id').notNull().references(() => reps.id),
-  metric_key: text('metric_key').notNull(),
-  label:      text('label').notNull(),
-  icon:       text('icon').notNull(),
-  color:      varchar('color', { length: 12 }).notNull(),
-  delta:      integer('delta').notNull().default(1),
-  logged_at:  timestamp('logged_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  id:          uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  rep_id:      text('rep_id').notNull().references(() => reps.id),
+  metric_key:  text('metric_key').notNull(),
+  label:       text('label').notNull(),
+  icon:        text('icon').notNull(),
+  color:       varchar('color', { length: 12 }).notNull(),
+  delta:       integer('delta').notNull().default(1),
+  calendar_id: uuid('calendar_id').references(() => calendar.id),
+  logged_at:   timestamp('logged_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (t) => [
   index('idx_log_entries_rep').on(t.rep_id),
   index('idx_log_entries_logged_at').on(t.logged_at),
+  index('idx_log_entries_calendar').on(t.calendar_id),
 ])
 
 export const targets = pgTable('targets', {
@@ -60,6 +62,21 @@ export const closed_deals = pgTable('closed_deals', {
   closed_date:   date('closed_date').notNull().default(sql`CURRENT_DATE`),
   created_at:    timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 })
+
+export const calendar = pgTable('calendar', {
+  id:               uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  rep_id:           text('rep_id').references(() => reps.id),
+  company_name:     text('company_name').notNull(),
+  activity_type:    text('activity_type').notNull(),
+  scheduled_date:   date('scheduled_date').notNull(),
+  intent:           text('intent').notNull().default('medium'),
+  status:           text('status').notNull().default('scheduled'),
+  reschedule_count: integer('reschedule_count').notNull().default(0),
+  created_at:       timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_calendar_rep').on(t.rep_id),
+  index('idx_calendar_date').on(t.scheduled_date),
+])
 
 export const daily_checklist = pgTable('daily_checklist', {
   id:         uuid('id').primaryKey().default(sql`gen_random_uuid()`),

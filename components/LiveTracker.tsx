@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
+import type { Rep, Client, ActivityLogEntry, Target, CalendarEvent, CalendarIntent } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS } from '@/lib/constants'
 import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
@@ -9,11 +9,19 @@ import { Avatar } from './ui/Avatar'
 import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
 import { Ring } from './charts'
 import { ClosedDealModal } from './ClosedDealModal'
+import { CalendarEventModal } from './CalendarEventModal'
+import { CalendarDecrementPicker } from './CalendarDecrementPicker'
+import { DayCalendar } from './DayCalendar'
 import {
   getActivityCountsAction,
   logActivityAction,
   decrementActivityAction,
   logClosedDealAction,
+  logCalendarEventAction,
+  getCalendarEventsAction,
+  getCalendarCompaniesAction,
+  getCalendarEventsForPeriodAction,
+  deleteCalendarEventAction,
 } from '@/app/actions'
 
 interface LiveTrackerProps {
@@ -37,6 +45,10 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
   const [countsByRep, setCountsByRep] = useState<Record<string, Record<string, number>>>({})
   const [now, setNow] = useState(new Date())
   const [showClosedModal, setShowClosedModal] = useState(false)
+  const [calendarModal, setCalendarModal] = useState<'disc' | 'demo' | null>(null)
+  const [decrementPicker, setDecrementPicker] = useState<{ type: 'disc' | 'demo'; events: CalendarEvent[] } | null>(null)
+  const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([])
+  const [calendarCompanies, setCalendarCompanies] = useState<string[]>([])
   const [range, setRange] = useState<LiveRange>('day')
   const [offset, setOffset] = useState(0)
 
@@ -47,11 +59,24 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
 
   const startISO = bounds.start.toISOString().slice(0, 10)
   const endISO   = bounds.end.toISOString().slice(0, 10)
+  const todayISO = new Date().toISOString().slice(0, 10)
 
-  // Fetch aggregated counts from server whenever the period changes
   useEffect(() => {
     getActivityCountsAction(startISO, endISO).then(setCountsByRep)
   }, [startISO, endISO])
+
+  // Load calendar companies and today's events
+  useEffect(() => {
+    getCalendarCompaniesAction().then(setCalendarCompanies)
+  }, [])
+
+  useEffect(() => {
+    if (activeRep && activeRep !== 'team') {
+      getCalendarEventsAction(activeRep, todayISO).then(setTodayEvents)
+    } else {
+      setTodayEvents([])
+    }
+  }, [activeRep, todayISO])
 
   function handleRangeChange(v: string) {
     setRange(v as LiveRange)
@@ -63,7 +88,6 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     return () => clearInterval(id)
   }, [])
 
-  // Feed filtered to current period for display
   const filteredFeed = useMemo(() => {
     const start = new Date(bounds.start); start.setHours(0, 0, 0, 0)
     const end   = new Date(bounds.end);   end.setHours(23, 59, 59, 999)
@@ -111,7 +135,6 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     const def = ALL_METRICS.find((m) => m.k === metricKey)
     if (!def) return
     const loggedAt = canLogHistorical ? `${endISO}T12:00:00.000Z` : undefined
-    // Optimistic update
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
@@ -119,7 +142,6 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     try {
       await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color, loggedAt)
     } catch {
-      // Roll back optimistic update
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 0) - 1) },
@@ -131,20 +153,49 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     if (isTeam || !rep) return
     const current = (countsByRep[activeRep] ?? {})[metricKey] ?? 0
     if (current <= 0) return
-    // Optimistic update
+
+    // For disc/demo, show a picker so the user selects which calendar entry to remove
+    if (metricKey === 'disc' || metricKey === 'demo') {
+      const events = await getCalendarEventsForPeriodAction(activeRep, metricKey, startISO, endISO)
+      setDecrementPicker({ type: metricKey, events })
+      return
+    }
+
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current - 1 },
     }))
     const result = await decrementActivityAction(activeRep, metricKey, startISO)
     if (!result.deleted && !result.id) {
-      // Nothing was found to decrement — roll back
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
       }))
     }
-  }, [isTeam, rep, activeRep, countsByRep, startISO])
+  }, [isTeam, rep, activeRep, countsByRep, startISO, endISO])
+
+  const handleDecrementPickerSelect = useCallback(async (event: CalendarEvent) => {
+    if (!decrementPicker) return
+    const { type } = decrementPicker
+    setDecrementPicker(null)
+
+    const current = (countsByRep[activeRep] ?? {})[type] ?? 0
+    setCountsByRep((prev) => ({
+      ...prev,
+      [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, current - 1) },
+    }))
+
+    try {
+      await deleteCalendarEventAction(event.id, activeRep, type, startISO)
+      // Remove from today's events if present
+      setTodayEvents((prev) => prev.filter((e) => e.id !== event.id))
+    } catch {
+      setCountsByRep((prev) => ({
+        ...prev,
+        [activeRep]: { ...(prev[activeRep] ?? {}), [type]: current },
+      }))
+    }
+  }, [decrementPicker, activeRep, countsByRep, startISO])
 
   const logClosedDeal = useCallback(async (data: { companyName: string; monthlyPrice: number; closedDate: string }) => {
     setShowClosedModal(false)
@@ -162,9 +213,51 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     }
   }, [rep, activeRep, onDealClosed])
 
+  const logCalendarEvent = useCallback(async (data: { companyName: string; scheduledDate: string; intent: CalendarIntent }) => {
+    if (!rep || !calendarModal) return
+    const type = calendarModal
+    setCalendarModal(null)
+
+    // Optimistic count update
+    setCountsByRep((prev) => ({
+      ...prev,
+      [activeRep]: { ...(prev[activeRep] ?? {}), [type]: ((prev[activeRep] ?? {})[type] ?? 0) + 1 },
+    }))
+
+    try {
+      const { event } = await logCalendarEventAction({
+        repId:         activeRep,
+        companyName:   data.companyName,
+        activityType:  type,
+        scheduledDate: data.scheduledDate,
+        intent:        data.intent,
+      })
+
+      // Add to today's events if scheduled for today
+      if (data.scheduledDate === todayISO && event) {
+        setTodayEvents((prev) => [...prev, event])
+      }
+
+      // Refresh companies list
+      getCalendarCompaniesAction().then(setCalendarCompanies)
+    } catch {
+      setCountsByRep((prev) => ({
+        ...prev,
+        [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, ((prev[activeRep] ?? {})[type] ?? 0) - 1) },
+      }))
+    }
+  }, [rep, activeRep, calendarModal, todayISO])
+
+  function handleInc(metricKey: string) {
+    if (metricKey === 'closed') { setShowClosedModal(true); return }
+    if (metricKey === 'disc')   { setCalendarModal('disc'); return }
+    if (metricKey === 'demo')   { setCalendarModal('demo'); return }
+    logActivity(metricKey)
+  }
+
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
-  void now // keeps the clock interval meaningful for any time-based displays
+  void now
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -335,7 +428,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
                       value={v}
                       target={t}
                       disabled={isTeam || isHistorical}
-                      onInc={def.k === 'closed' ? () => setShowClosedModal(true) : () => logActivity(def.k)}
+                      onInc={() => handleInc(def.k)}
                       onDec={() => decrement(def.k)}
                     />
                   )
@@ -379,11 +472,43 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
         </Card>
       </div>
 
+      {/* Day calendar */}
+      {!isTeam && (
+        <DayCalendar
+          events={todayEvents}
+          reps={reps}
+          repId={activeRep}
+          companies={calendarCompanies}
+          onEventsChange={setTodayEvents}
+          onCompaniesUpdate={setCalendarCompanies}
+        />
+      )}
+
       {showClosedModal && rep && (
         <ClosedDealModal
           rep={rep}
+          companies={calendarCompanies}
           onSave={logClosedDeal}
           onCancel={() => setShowClosedModal(false)}
+        />
+      )}
+
+      {calendarModal && rep && (
+        <CalendarEventModal
+          rep={rep}
+          activityType={calendarModal}
+          companies={calendarCompanies}
+          onSave={logCalendarEvent}
+          onCancel={() => setCalendarModal(null)}
+        />
+      )}
+
+      {decrementPicker && (
+        <CalendarDecrementPicker
+          events={decrementPicker.events}
+          activityType={decrementPicker.type}
+          onSelect={handleDecrementPickerSelect}
+          onCancel={() => setDecrementPicker(null)}
         />
       )}
     </div>

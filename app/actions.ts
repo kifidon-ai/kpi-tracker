@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals, clients, tasks, daily_checklist } from '@/db/schema'
+import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar } from '@/db/schema'
 import { eq, and, gte, lte, desc, sql, asc } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
@@ -226,6 +226,258 @@ export async function getTasksAction() {
   } catch {
     return []
   }
+}
+
+export async function getCalendarEventsForPeriodAction(
+  repId: string,
+  activityType: string,
+  startISO: string,
+  endISO: string,
+) {
+  try {
+    return await db
+      .select()
+      .from(calendar)
+      .where(and(
+        eq(calendar.rep_id, repId),
+        eq(calendar.activity_type, activityType),
+        gte(calendar.scheduled_date, startISO),
+        lte(calendar.scheduled_date, endISO),
+      ))
+      .orderBy(desc(calendar.scheduled_date))
+  } catch { return [] }
+}
+
+export async function deleteCalendarEventAction(eventId: string, repId: string, metricKey: string, periodStartISO: string) {
+  try {
+    await db.delete(calendar).where(and(eq(calendar.id, eventId), eq(calendar.rep_id, repId)))
+  } catch { /* table may not exist yet */ }
+  await decrementActivityAction(repId, metricKey, periodStartISO)
+  return { ok: true }
+}
+
+export async function logCalendarEventAction(data: {
+  repId: string
+  companyName: string
+  activityType: string
+  scheduledDate: string
+  intent: string
+  loggedAt?: string
+}) {
+  const def = data.activityType === 'disc'
+    ? { label: `Discovery booked · ${data.companyName}`, icon: 'calendar', color: '#FFD700', metricKey: 'disc' }
+    : { label: `Demo booked · ${data.companyName}`,      icon: 'present',  color: '#00E5A0', metricKey: 'demo' }
+
+  let event = null
+  try {
+    const [row] = await db
+      .insert(calendar)
+      .values({
+        rep_id:         data.repId,
+        company_name:   data.companyName,
+        activity_type:  data.activityType,
+        scheduled_date: data.scheduledDate,
+        intent:         data.intent,
+        status:         'scheduled',
+      })
+      .returning()
+    event = row
+  } catch { /* table may not exist yet — still log the activity */ }
+
+  const [entry] = await db
+    .insert(activity_log_entries)
+    .values({
+      rep_id:      data.repId,
+      metric_key:  def.metricKey,
+      label:       def.label,
+      icon:        def.icon,
+      color:       def.color,
+      delta:       1,
+      calendar_id: event?.id,
+      ...(data.loggedAt ? { logged_at: data.loggedAt } : {}),
+    })
+    .returning()
+
+  return { event, entry }
+}
+
+export async function getCalendarEventsAction(repId: string, dateISO: string) {
+  try {
+    return await db
+      .select()
+      .from(calendar)
+      .where(and(
+        eq(calendar.rep_id, repId),
+        eq(calendar.scheduled_date, dateISO),
+      ))
+      .orderBy(asc(calendar.created_at))
+  } catch { return [] }
+}
+
+export async function getCalendarCompaniesAction() {
+  try {
+    const rows = await db
+      .selectDistinct({ company_name: calendar.company_name })
+      .from(calendar)
+      .orderBy(asc(calendar.company_name))
+    return rows.map((r) => r.company_name)
+  } catch { return [] }
+}
+
+export async function updateCalendarEventStatusAction(
+  eventId: string,
+  status: string,
+) {
+  const [event] = await db
+    .update(calendar)
+    .set({ status })
+    .where(eq(calendar.id, eventId))
+    .returning()
+  return { event }
+}
+
+export async function rescheduleCalendarEventAction(
+  eventId: string,
+  newDate: string,
+) {
+  const [event] = await db
+    .update(calendar)
+    .set({
+      scheduled_date:   newDate,
+      status:           'scheduled',
+      reschedule_count: sql`${calendar.reschedule_count} + 1`,
+    })
+    .where(eq(calendar.id, eventId))
+    .returning()
+  return { event }
+}
+
+export async function getShowRatesAction() {
+  try {
+    const rows = await db
+      .select({
+        rep_id:        calendar.rep_id,
+        activity_type: calendar.activity_type,
+        total:         sql<number>`cast(count(*) as int)`,
+        attended:      sql<number>`cast(sum(case when ${calendar.status} = 'attended' then 1 else 0 end) as int)`,
+      })
+      .from(calendar)
+      .groupBy(calendar.rep_id, calendar.activity_type)
+    return rows
+  } catch { return [] }
+}
+
+export async function addCalendarEntryOnlyAction(data: {
+  repId: string
+  companyName: string
+  activityType: string
+  scheduledDate: string
+  intent: string
+  status?: string
+}) {
+  const [event] = await db
+    .insert(calendar)
+    .values({
+      rep_id:         data.repId,
+      company_name:   data.companyName,
+      activity_type:  data.activityType,
+      scheduled_date: data.scheduledDate,
+      intent:         data.intent,
+      status:         data.status ?? 'scheduled',
+    })
+    .returning()
+  return { event }
+}
+
+export async function getAttendedConversionsAction() {
+  try {
+    const allDisc = await db.select().from(calendar).where(eq(calendar.activity_type, 'disc'))
+    const attendedDisc = await db
+      .select()
+      .from(calendar)
+      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended')))
+
+    const allDemos = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))
+    const attendedDemos = await db
+      .select()
+      .from(calendar)
+      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended')))
+
+    const closedDeals = await db.select().from(closed_deals)
+
+    const result: Record<string, {
+      discBooked: number
+      discAttended: number
+      discToDemoConversions: number
+      demoBooked: number
+      demoAttended: number
+      demoToClosedConversions: number
+    }> = {}
+
+    // Collect all rep IDs (filter out nulls)
+    const repIds = new Set<string>()
+    allDisc.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
+    allDemos.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
+    attendedDemos.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
+    closedDeals.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
+
+    for (const repId of repIds) {
+      const repAllDisc = allDisc.filter((d) => d.rep_id === repId)
+      const repAttendedDisc = attendedDisc.filter((d) => d.rep_id === repId)
+      const repAllDemos = allDemos.filter((d) => d.rep_id === repId)
+      const repAttendedDemos = attendedDemos.filter((d) => d.rep_id === repId)
+      const repClosed = closedDeals.filter((d) => d.rep_id === repId)
+
+      // Count attended disc that led to a demo booking (same company, later date)
+      let discToDemoCount = 0
+      for (const disc of repAttendedDisc) {
+        const hasDemo = repAllDemos.some(
+          (demo) => demo.company_name === disc.company_name && demo.scheduled_date > disc.scheduled_date,
+        )
+        if (hasDemo) discToDemoCount++
+      }
+
+      // Count attended demo that led to a closed deal (same company)
+      let demoToClosedCount = 0
+      for (const demo of repAttendedDemos) {
+        const hasClosed = repClosed.some((deal) => deal.company_name === demo.company_name)
+        if (hasClosed) demoToClosedCount++
+      }
+
+      result[repId] = {
+        discBooked: repAllDisc.length,
+        discAttended: repAttendedDisc.length,
+        discToDemoConversions: discToDemoCount,
+        demoBooked: repAllDemos.length,
+        demoAttended: repAttendedDemos.length,
+        demoToClosedConversions: demoToClosedCount,
+      }
+    }
+
+    return result
+  } catch {
+    return {}
+  }
+}
+
+export async function removeCalendarEventAction(eventId: string) {
+  try {
+    await db.delete(activity_log_entries).where(eq(activity_log_entries.calendar_id, eventId as unknown as string))
+  } catch { /* may not exist */ }
+  await db.delete(calendar).where(eq(calendar.id, eventId))
+  return { ok: true }
+}
+
+export async function editCalendarEventAction(eventId: string, data: { intent?: string; scheduledDate?: string }) {
+  const [event] = await db
+    .update(calendar)
+    .set({
+      ...(data.intent        ? { intent: data.intent }                     : {}),
+      ...(data.scheduledDate ? { scheduled_date: data.scheduledDate } : {}),
+    })
+    .where(eq(calendar.id, eventId))
+    .returning()
+  return { event }
 }
 
 export async function getDailyChecklistAction(dateKey: string) {

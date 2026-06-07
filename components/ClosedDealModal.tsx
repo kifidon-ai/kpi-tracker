@@ -1,20 +1,41 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { Rep } from '@/lib/types'
 import { fmtMoney } from '@/lib/helpers'
 
 interface ClosedDealModalProps {
   rep: Rep
+  companies: string[]
   onSave: (data: { companyName: string; monthlyPrice: number; closedDate: string }) => void
   onCancel: () => void
 }
 
-export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps) {
+export function ClosedDealModal({ rep, companies, onSave, onCancel }: ClosedDealModalProps) {
   const today = new Date().toISOString().slice(0, 10)
   const [companyName, setCompanyName] = useState('')
   const [monthlyPrice, setMonthlyPrice] = useState('')
   const [closedDate, setClosedDate] = useState(today)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const filtered = companies.filter((c) =>
+    c.toLowerCase().includes(companyName.toLowerCase()) && c.toLowerCase() !== companyName.toLowerCase()
+  )
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        inputRef.current && !inputRef.current.contains(e.target as Node)
+      ) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   const price = parseFloat(monthlyPrice) || 0
   const canSubmit = companyName.trim().length > 0 && price > 0
@@ -32,7 +53,6 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
         style={{ background: 'linear-gradient(180deg, var(--card-top), var(--card-bottom))' }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-2 h-2 rounded-full bg-mint" />
@@ -43,20 +63,40 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Company name */}
-          <div className="flex flex-col gap-1.5">
+          {/* Company name combobox */}
+          <div className="flex flex-col gap-1.5 relative">
             <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Company name</label>
             <input
+              ref={inputRef}
               type="text"
               value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
+              onChange={(e) => { setCompanyName(e.target.value); setShowDropdown(true) }}
+              onFocus={() => setShowDropdown(true)}
               placeholder="Acme Corp"
               autoFocus
               className="w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-ink outline-none transition-all placeholder:text-ink-3"
               style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = '#00E5A066')}
-              onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
+              onFocusCapture={(e) => (e.currentTarget.style.borderColor = '#00E5A066')}
+              onBlurCapture={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
             />
+            {showDropdown && filtered.length > 0 && (
+              <div
+                ref={dropdownRef}
+                className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-line-2 overflow-hidden z-10 shadow-xl"
+                style={{ background: 'var(--card-bottom)' }}
+              >
+                {filtered.slice(0, 6).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className="w-full text-left px-3.5 py-2 text-[13px] font-medium text-ink hover:bg-line transition-colors"
+                    onMouseDown={() => { setCompanyName(c); setShowDropdown(false) }}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Monthly price + Closed date */}
@@ -105,7 +145,6 @@ export function ClosedDealModal({ rep, onSave, onCancel }: ClosedDealModalProps)
             </span>
           </div>
 
-          {/* Buttons */}
           <div className="flex gap-3 mt-1">
             <button
               type="button"
