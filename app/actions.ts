@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar } from '@/db/schema'
-import { eq, and, gte, lte, desc, sql, asc } from 'drizzle-orm'
+import { eq, and, gte, lte, desc, sql, asc, lt } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
@@ -376,6 +376,7 @@ export async function getShowRatesAction() {
         attended:      sql<number>`cast(sum(case when ${calendar.status} = 'attended' then 1 else 0 end) as int)`,
       })
       .from(calendar)
+      .where(lt(calendar.scheduled_date, sql`CURRENT_DATE`))
       .groupBy(calendar.rep_id, calendar.activity_type)
     return rows
   } catch { return [] }
@@ -405,17 +406,17 @@ export async function addCalendarEntryOnlyAction(data: {
 
 export async function getAttendedConversionsAction() {
   try {
-    const allDisc = await db.select().from(calendar).where(eq(calendar.activity_type, 'disc'))
+    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
     const attendedDisc = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended')))
+      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
 
-    const allDemos = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))
+    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
     const attendedDemos = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended')))
+      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
 
     const closedDeals = await db.select().from(closed_deals)
 

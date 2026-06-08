@@ -13,7 +13,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
     group: 'Meetings booked',
     items: [
       { k: 'disc', label: 'Discovery booked', short: 'Disc booked', icon: 'calendar', color: '#FFD700' },
-      { k: 'demo', label: 'Demo booked',      short: 'Demo booked', icon: 'present',  color: '#00E5A0' },
+      { k: 'demo', label: 'Demo booked',      short: 'Demo booked', icon: 'present',  color: '#7AA7F5' },
     ],
   },
   {
