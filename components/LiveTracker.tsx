@@ -21,6 +21,7 @@ import {
   getCalendarEventsAction,
   getCalendarCompaniesAction,
   getCalendarEventsForPeriodAction,
+  getCalendarEventsForDateRangeAction,
   deleteCalendarEventAction,
 } from '@/app/actions'
 
@@ -72,11 +73,11 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
 
   useEffect(() => {
     if (activeRep && activeRep !== 'team') {
-      getCalendarEventsAction(activeRep, todayISO).then(setTodayEvents)
+      getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then(setTodayEvents)
     } else {
       setTodayEvents([])
     }
-  }, [activeRep, todayISO])
+  }, [activeRep, startISO, endISO])
 
   function handleRangeChange(v: string) {
     setRange(v as LiveRange)
@@ -91,7 +92,11 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
   const filteredFeed = useMemo(() => {
     const start = new Date(bounds.start); start.setHours(0, 0, 0, 0)
     const end   = new Date(bounds.end);   end.setHours(23, 59, 59, 999)
-    return feed.filter((e) => { const d = new Date(e.logged_at); return d >= start && d <= end })
+    return feed.filter((e) => {
+      const utcDate = new Date(e.logged_at)
+      const etDate = new Date(utcDate.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+      return etDate >= start && etDate <= end
+    })
   }, [feed, bounds])
 
   const isTeam = activeRep === 'team'
@@ -263,7 +268,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     <div className="flex flex-col gap-[18px]">
 
       {/* Rep selector */}
-      <Card padding={16}>
+      <Card padding={16} style={{ position: 'sticky', top: '120px', zIndex: 9, background: 'var(--bg-1)' }}>
         <div className="flex justify-between items-center flex-wrap gap-3.5">
           <div>
             <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">
@@ -479,6 +484,8 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
           reps={reps}
           repId={activeRep}
           companies={calendarCompanies}
+          startDate={startISO}
+          endDate={endISO}
           onEventsChange={setTodayEvents}
           onCompaniesUpdate={setCalendarCompanies}
         />

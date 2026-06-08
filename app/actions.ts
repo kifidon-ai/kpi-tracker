@@ -13,8 +13,8 @@ export async function getActivityCountsAction(startISO: string, endISO: string) 
     })
     .from(activity_log_entries)
     .where(and(
-      gte(activity_log_entries.logged_at, startISO + 'T00:00:00.000Z'),
-      lte(activity_log_entries.logged_at, endISO + 'T23:59:59.999Z'),
+      gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, startISO),
+      lte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, endISO),
     ))
     .groupBy(activity_log_entries.rep_id, activity_log_entries.metric_key)
 
@@ -56,7 +56,7 @@ export async function decrementActivityAction(repId: string, metricKey: string, 
     .where(and(
       eq(activity_log_entries.rep_id, repId),
       eq(activity_log_entries.metric_key, metricKey),
-      gte(activity_log_entries.logged_at, periodStartISO + 'T00:00:00.000Z'),
+      gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, periodStartISO),
     ))
     .orderBy(desc(activity_log_entries.logged_at))
     .limit(1)
@@ -311,6 +311,20 @@ export async function getCalendarEventsAction(repId: string, dateISO: string) {
         eq(calendar.scheduled_date, dateISO),
       ))
       .orderBy(asc(calendar.created_at))
+  } catch { return [] }
+}
+
+export async function getCalendarEventsForDateRangeAction(repId: string, startISO: string, endISO: string) {
+  try {
+    return await db
+      .select()
+      .from(calendar)
+      .where(and(
+        eq(calendar.rep_id, repId),
+        gte(calendar.scheduled_date, startISO),
+        lte(calendar.scheduled_date, endISO),
+      ))
+      .orderBy(desc(calendar.scheduled_date))
   } catch { return [] }
 }
 

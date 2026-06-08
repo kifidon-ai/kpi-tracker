@@ -20,6 +20,8 @@ interface DayCalendarProps {
   reps: Rep[]
   repId: string
   companies: string[]
+  startDate?: string
+  endDate?: string
   onEventsChange: (events: CalendarEvent[]) => void
   onCompaniesUpdate: (companies: string[]) => void
 }
@@ -39,7 +41,7 @@ const TYPE_COLOR: Record<string, string>  = { disc: '#FFD700', demo: '#00E5A0' }
 
 type CardMode = 'view' | 'reschedule' | 'edit'
 
-export function DayCalendar({ events, reps, repId, companies, onEventsChange, onCompaniesUpdate }: DayCalendarProps) {
+export function DayCalendar({ events, reps, repId, companies, startDate, endDate, onEventsChange, onCompaniesUpdate }: DayCalendarProps) {
   const [cardMode, setCardMode]           = useState<Record<string, CardMode>>({})
   const [rescheduleDate, setRescheduleDate] = useState<Record<string, string>>({})
   const [editState, setEditState]         = useState<Record<string, { intent: string; date: string }>>({})
@@ -49,7 +51,25 @@ export function DayCalendar({ events, reps, repId, companies, onEventsChange, on
   const menuRef = useRef<HTMLDivElement>(null)
   const todayISO = new Date().toISOString().slice(0, 10)
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  const dateLabel = (() => {
+    if (!startDate || !endDate) return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    if (startDate === endDate) {
+      const [y, m, d] = startDate.split('-')
+      const date = new Date(Number(y), Number(m) - 1, Number(d))
+      return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    }
+    const [sy, sm, sd] = startDate.split('-')
+    const [ey, em, ed] = endDate.split('-')
+    const start = new Date(Number(sy), Number(sm) - 1, Number(sd))
+    const end = new Date(Number(ey), Number(em) - 1, Number(ed))
+    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    const endStr = end.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+    return `${startStr} – ${endStr}`
+  })()
+
+  const isSingleDay = startDate && endDate && startDate === endDate
+  const sectionTitle = isSingleDay ? "Today's meetings" : "Meetings"
+  const today = dateLabel
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -145,7 +165,7 @@ export function DayCalendar({ events, reps, repId, companies, onEventsChange, on
     return (
       <Card>
         <div className="flex items-center justify-between mb-1">
-          <SectionTitle>Today&apos;s meetings <span className="text-[11px] font-normal text-ink-3 ml-1">{today}</span></SectionTitle>
+          <SectionTitle>{sectionTitle} <span className="text-[11px] font-normal text-ink-3 ml-1">{today}</span></SectionTitle>
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-ink-2 hover:text-ink transition-colors"
@@ -167,7 +187,7 @@ export function DayCalendar({ events, reps, repId, companies, onEventsChange, on
     <Card>
       <div className="flex items-center justify-between mb-4">
         <SectionTitle>
-          Today&apos;s meetings{' '}
+          {sectionTitle}{' '}
           <span className="text-[11px] font-normal text-ink-3 ml-1">{today}</span>
         </SectionTitle>
         <div className="flex items-center gap-3">
