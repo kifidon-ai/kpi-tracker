@@ -4,9 +4,10 @@ export const METRIC_GROUPS: MetricGroup[] = [
   {
     group: 'Outreach',
     items: [
-      { k: 'dials', label: 'Dial',         short: 'Dial',     icon: 'phone',    color: '#FF4444' },
-      { k: 'conv',  label: 'Conversation', short: 'Conv',     icon: 'chat',     color: '#FF8C00' },
-      { k: 'vm',    label: 'Voicemail',    short: 'VM',       icon: 'voicemail',color: '#5A6685' },
+      { k: 'dials',   label: 'Dial',              short: 'Dial',      icon: 'phone',    color: '#FF4444' },
+      { k: 'gk_conv', label: 'GK Conversation',  short: 'GK Conv',    icon: 'chat',     color: '#FF8C00' },
+      { k: 'dm_conv', label: 'DM Conversation',  short: 'DM Conv',    icon: 'chat',     color: '#FFA500' },
+      { k: 'vm',      label: 'Voicemail',        short: 'VM',         icon: 'voicemail',color: '#5A6685' },
     ],
   },
   {
@@ -25,4 +26,4 @@ export const METRIC_GROUPS: MetricGroup[] = [
 ]
 
 export const ALL_METRICS = METRIC_GROUPS.flatMap((g) => g.items)
-export const KEY_METRICS = ['dials', 'conv', 'disc', 'demo', 'closed']
+export const KEY_METRICS = ['dials', 'dm_conv', 'disc', 'closed']

@@ -221,7 +221,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       trendRows.filter((r) => r.date >= startStr && r.date <= endStr)
                .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
       const label = w === 0 ? 'Now' : (start.getMonth() + 1) + '/' + start.getDate()
-      out.push({ label, dials: t.dials ?? 0, conv: t.conv ?? 0, vm: t.vm ?? 0,
+      out.push({ label, dials: t.dials ?? 0, conv: t.dm_conv ?? 0, vm: t.vm ?? 0,
         disc: t.disc ?? 0, demo: t.demo ?? 0, onb: t.onb ?? 0, closed: t.closed ?? 0 })
     }
     return out
@@ -236,7 +236,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       trendRows.filter((r) => r.date === dateStr)
                .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
       out.push({ label: (d.getMonth() + 1) + '/' + d.getDate(),
-        dials: t.dials ?? 0, conv: t.conv ?? 0, vm: t.vm ?? 0,
+        dials: t.dials ?? 0, conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0), vm: t.vm ?? 0,
         disc: t.disc ?? 0, demo: t.demo ?? 0, onb: t.onb ?? 0, closed: t.closed ?? 0 })
     }
     return out
@@ -351,7 +351,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
   const pipelineStages = [
     { label: 'Dials',     value: t.dials ?? 0, color: '#00D4FF' },
-    { label: 'Conv',      value: t.conv  ?? 0, color: '#8B5CF6' },
+    { label: 'Conv',      value: t.dm_conv ?? 0, color: '#8B5CF6' },
     { label: 'Discovery', value: t.disc  ?? 0, color: '#FFB800' },
     { label: 'Demo',      value: t.demo  ?? 0, color: '#FF3D9A' },
     { label: 'Closed',    value: closedCount,   color: '#00E5A0' },
@@ -429,7 +429,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           <div className="grid grid-cols-4 gap-3.5">
             <Card><KPI label="Dials"         value={t.dials  ?? 0} target={tgt?.dials}  color="#00D4FF" formatter={fmtNum} delta={delta(t.dials ?? 0, pt.dials ?? 0)} /></Card>
             <Card><KPI label="Voicemails"    value={t.vm     ?? 0}                       color="#5A6685" formatter={fmtNum} delta={delta(t.vm    ?? 0, pt.vm    ?? 0)} /></Card>
-            <Card><KPI label="Conversations" value={t.conv   ?? 0} target={tgt?.conv}   color="#8B5CF6" formatter={fmtNum} delta={delta(t.conv  ?? 0, pt.conv  ?? 0)} /></Card>
+            <Card><KPI label="Conversations" value={t.dm_conv ?? 0} target={tgt?.dm_conv} color="#8B5CF6" formatter={fmtNum} delta={delta(t.dm_conv ?? 0, pt.dm_conv ?? 0)} /></Card>
             <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
             <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
             <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
@@ -485,7 +485,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               const mult = range === 'month' ? 4 : range === 'day' ? 1 / 5 : 1
               const goalRings = [
                 { label: 'Dials',   value: t.dials ?? 0, goal: 200 * mult, color: '#00D4FF' },
-                { label: 'Convs',   value: t.conv  ?? 0, goal: 100 * mult, color: '#8B5CF6' },
+                { label: 'Convs',   value: t.dm_conv ?? 0, goal: 100 * mult, color: '#8B5CF6' },
                 { label: 'Disc',    value: t.disc  ?? 0, goal:  10 * mult, color: '#FFB800' },
                 { label: 'Demos',   value: t.demo  ?? 0, goal:   5 * mult, color: '#FF3D9A' },
               ]
@@ -588,7 +588,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           <SectionTitle>Funnel</SectionTitle>
           <FunnelBar stages={[
             { label: 'Dials',         value: t.dials ?? 0, color: '#00D4FF' },
-            { label: 'Conversations', value: t.conv  ?? 0, color: '#8B5CF6' },
+            { label: 'Conversations', value: t.dm_conv ?? 0, color: '#8B5CF6' },
             { label: 'Discovery',     value: t.disc  ?? 0, color: '#FFB800' },
             { label: 'Demo',          value: t.demo  ?? 0, color: '#FF3D9A' },
             { label: 'Won',           value: closedCount,   color: '#00E5A0' },
@@ -630,7 +630,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               {reps.map((rep) => {
                 const m      = repTotals[rep.id] ?? {}
                 const dials  = m.dials  ?? 0
-                const conv   = m.conv   ?? 0
+                const conv   = m.dm_conv ?? 0
                 const vm     = m.vm     ?? 0
                 const disc   = m.disc   ?? 0
                 const demo   = m.demo   ?? 0

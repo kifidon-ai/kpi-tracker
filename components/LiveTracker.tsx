@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Rep, Client, ActivityLogEntry, Target, CalendarEvent, CalendarIntent } from '@/lib/types'
-import { METRIC_GROUPS, ALL_METRICS } from '@/lib/constants'
+import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
 import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
@@ -34,7 +34,6 @@ interface LiveTrackerProps {
   onDealClosed?: (client: Client) => void
 }
 
-const KEY_METRICS = ['dials', 'conv', 'disc', 'demo'] as const
 
 export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? 'team')

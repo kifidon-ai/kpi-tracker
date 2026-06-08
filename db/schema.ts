@@ -43,15 +43,15 @@ export const activity_log_entries = pgTable('activity_log_entries', {
 ])
 
 export const targets = pgTable('targets', {
-  id:     uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  period: text('period').notNull().unique(),
-  dials:  integer('dials').notNull().default(0),
-  conv:   integer('conv').notNull().default(0),
-  vm:     integer('vm').notNull().default(0),
-  disc:   integer('disc').notNull().default(0),
-  demo:   integer('demo').notNull().default(0),
-  onb:    integer('onb').notNull().default(0),
-  closed: integer('closed').notNull().default(0),
+  id:       uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  period:   text('period').notNull().unique(),
+  dials:    integer('dials').notNull().default(0),
+  dm_conv:  integer('dm_conv').notNull().default(0),
+  vm:       integer('vm').notNull().default(0),
+  disc:     integer('disc').notNull().default(0),
+  demo:     integer('demo').notNull().default(0),
+  onb:      integer('onb').notNull().default(0),
+  closed:   integer('closed').notNull().default(0),
 })
 
 export const closed_deals = pgTable('closed_deals', {
