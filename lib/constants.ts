@@ -19,7 +19,6 @@ export const METRIC_GROUPS: MetricGroup[] = [
   {
     group: 'Rescheduled / lost',
     items: [
-      { k: 'ghosted', label: 'Cancelled / ghosted', short: 'Ghosted', icon: 'minus',  color: '#FF5468' },
       { k: 'closed',  label: 'Closed won',          short: 'Closed',  icon: 'trophy', color: '#00E5A0' },
     ],
   },
