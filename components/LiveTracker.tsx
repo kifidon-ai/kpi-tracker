@@ -289,9 +289,8 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
               >←</button>
               <span className="text-[12px] text-ink-2 font-medium w-[130px] text-center">{label}</span>
               <button
-                onClick={() => setOffset((o) => Math.max(0, o - 1))}
-                disabled={offset === 0}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+                onClick={() => setOffset((o) => o - 1)}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none"
               >→</button>
             </div>
             <Segmented
