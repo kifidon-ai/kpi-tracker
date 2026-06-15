@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar } from '@/db/schema'
-import { eq, and, gte, lte, desc, sql, asc, lt } from 'drizzle-orm'
+import { eq, and, gte, lte, desc, sql, asc, lt, ne, or } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
@@ -406,18 +406,21 @@ export async function addCalendarEntryOnlyAction(data: {
 
 export async function getAttendedConversionsAction() {
   try {
-    // Historical data: events scheduled up to and including today
-    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
+    // Include past meetings always; include today's only if resolved (attended / no_show / rescheduled)
+    const resolvedToday = and(eq(calendar.scheduled_date, sql`CURRENT_DATE`), or(eq(calendar.status, 'attended'), eq(calendar.status, 'no_show')))
+    const pastOrResolvedToday = or(lt(calendar.scheduled_date, sql`CURRENT_DATE`), resolvedToday)
+
+    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), pastOrResolvedToday))
     const attendedDisc = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
+      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), pastOrResolvedToday))
 
-    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
+    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), pastOrResolvedToday))
     const attendedDemos = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
+      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), pastOrResolvedToday))
 
     // All demos ever (including future) to check conversions from attended disc
     const allDemosIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))

@@ -812,6 +812,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         }))
         const peak = hourData.reduce((best, d) => d.total > best.total ? d : best, hourData[0])
         const maxVal = Math.max(...hourData.map((d) => d.total), 1)
+        const currentHourET = parseInt(
+          new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }).format(new Date()),
+          10,
+        )
 
         const fmtHour = (h: number) =>
           h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`
@@ -829,6 +833,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 <div className="flex items-end gap-[6px] h-44 px-2">
                   {hourData.map(({ h, total }) => {
                     const isPeak = h === peak.h && peak.total > 0
+                    const isCurrentHour = h === currentHourET
                     const barH = total ? Math.max((total / maxVal) * 100, 3) : 0
                     return (
                       <div key={h} className="flex-1 flex flex-col items-center gap-1.5 group">
@@ -836,7 +841,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                           {total > 0 && (
                             <div
                               className="mono text-[9px] font-bold mb-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              style={{ color: isPeak ? '#00E5A0' : '#FFB800' }}
+                              style={{ color: isCurrentHour ? '#00D4FF' : isPeak ? '#00E5A0' : '#FFB800' }}
                             >
                               {total}
                             </div>
@@ -845,19 +850,21 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                             className="w-full rounded-t-[3px] transition-all duration-300"
                             style={{
                               height: `${barH}%`,
-                              background: isPeak
-                                ? 'linear-gradient(180deg, #00E5A0, #00B87A)'
-                                : total > 0
-                                  ? 'linear-gradient(180deg, #FFB84D, #CC8800)'
-                                  : '#1A2035',
-                              opacity: total > 0 ? 0.9 : 0.3,
-                              minHeight: total > 0 ? 3 : 0,
+                              background: isCurrentHour
+                                ? 'linear-gradient(180deg, #00D4FF, #0099BB)'
+                                : isPeak
+                                  ? 'linear-gradient(180deg, #00E5A0, #00B87A)'
+                                  : total > 0
+                                    ? 'linear-gradient(180deg, #FFB84D, #CC8800)'
+                                    : '#1A2035',
+                              opacity: total > 0 ? 0.9 : isCurrentHour ? 0.4 : 0.3,
+                              minHeight: total > 0 || isCurrentHour ? 3 : 0,
                             }}
                           />
                         </div>
                         <div
                           className="mono text-[8px] leading-none"
-                          style={{ color: isPeak ? '#00E5A0' : '#3A4460' }}
+                          style={{ color: isCurrentHour ? '#00D4FF' : isPeak ? '#00E5A0' : '#3A4460' }}
                         >
                           {fmtHour(h)}
                         </div>
