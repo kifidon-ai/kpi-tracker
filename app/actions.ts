@@ -455,7 +455,7 @@ export async function getAttendedConversionsAction() {
       let discToDemoCount = 0
       for (const disc of repAttendedDisc) {
         const hasDemo = repAllDemosIncludingFuture.some(
-          (demo) => demo.company_name === disc.company_name && demo.scheduled_date > disc.scheduled_date,
+          (demo) => demo.company_name === disc.company_name && demo.scheduled_date >= disc.scheduled_date,
         )
         if (hasDemo) discToDemoCount++
       }
