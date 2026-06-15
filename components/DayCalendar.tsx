@@ -48,6 +48,8 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
   const [openMenu, setOpenMenu]           = useState<string | null>(null)
   const [loading, setLoading]             = useState<string | null>(null)
   const [showAddModal, setShowAddModal]   = useState(false)
+  const [filterType, setFilterType]       = useState<'all' | 'disc' | 'demo'>('all')
+  const [sortBy, setSortBy]               = useState<'name' | 'type'>('name')
   const menuRef = useRef<HTMLDivElement>(null)
   const todayISO = new Date().toISOString().slice(0, 10)
 
@@ -70,6 +72,19 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
   const isSingleDay = startDate && endDate && startDate === endDate
   const sectionTitle = isSingleDay ? "Today's meetings" : "Meetings"
   const today = dateLabel
+
+  const filteredAndSortedEvents = events
+    .filter((e) => filterType === 'all' || e.activity_type === filterType)
+    .sort((a, b) => {
+      if (sortBy === 'name') {
+        return a.company_name.localeCompare(b.company_name)
+      } else {
+        const typeOrder = { disc: 0, demo: 1 }
+        const aTypeOrder = typeOrder[a.activity_type as keyof typeof typeOrder] ?? 2
+        const bTypeOrder = typeOrder[b.activity_type as keyof typeof typeOrder] ?? 2
+        return aTypeOrder - bTypeOrder || a.company_name.localeCompare(b.company_name)
+      }
+    })
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -191,7 +206,7 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
           <span className="text-[11px] font-normal text-ink-3 ml-1">{today}</span>
         </SectionTitle>
         <div className="flex items-center gap-3">
-          <div className="text-[11px] text-ink-3">{events.length} meeting{events.length !== 1 ? 's' : ''}</div>
+          <div className="text-[11px] text-ink-3">{filteredAndSortedEvents.length} meeting{filteredAndSortedEvents.length !== 1 ? 's' : ''}</div>
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-ink-2 hover:text-ink transition-colors"
@@ -207,8 +222,49 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
         <AddMeetingModal companies={companies} onSave={handleAddMeeting} onCancel={() => setShowAddModal(false)} />
       )}
 
+      <div className="flex items-center gap-3 mb-3 pb-3 border-b border-line">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-ink-3 uppercase tracking-[0.6px] font-semibold">Filter:</span>
+          <div className="flex gap-1 bg-bg-2 p-1 rounded-lg">
+            {['all', 'disc', 'demo'].map((type) => (
+              <button
+                key={type}
+                onClick={() => setFilterType(type as 'all' | 'disc' | 'demo')}
+                className="px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all"
+                style={{
+                  background: filterType === type ? 'var(--bg-1)' : 'transparent',
+                  color: filterType === type ? 'var(--ink)' : 'var(--ink-3)',
+                  border: filterType === type ? '1px solid var(--line)' : '1px solid transparent',
+                }}
+              >
+                {type === 'all' ? 'All' : type === 'disc' ? 'Disc' : 'Demo'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-[10px] text-ink-3 uppercase tracking-[0.6px] font-semibold">Sort:</span>
+          <div className="flex gap-1 bg-bg-2 p-1 rounded-lg">
+            {['name', 'type'].map((sort) => (
+              <button
+                key={sort}
+                onClick={() => setSortBy(sort as 'name' | 'type')}
+                className="px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all"
+                style={{
+                  background: sortBy === sort ? 'var(--bg-1)' : 'transparent',
+                  color: sortBy === sort ? 'var(--ink)' : 'var(--ink-3)',
+                  border: sortBy === sort ? '1px solid var(--line)' : '1px solid transparent',
+                }}
+              >
+                {sort === 'name' ? 'Name' : 'Type'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-col gap-2">
-        {events.map((event) => {
+        {filteredAndSortedEvents.map((event) => {
           const rep      = reps.find((r) => r.id === event.rep_id)
           const isLoading = loading === event.id
           const mode     = getMode(event.id)

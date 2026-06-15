@@ -75,6 +75,12 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
 }
 
 export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const reps = allReps.filter((r) => r.is_active)
   type ClientSortKey = 'name' | 'since_date' | 'mrr' | 'arr' | 'rep'
 
@@ -299,11 +305,15 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     if (!eventDates.includes(windowEndStr))   eventDates.push(windowEndStr)
     eventDates.sort()
 
-    const actual = eventDates.map((date) => ({
-      date,
-      arr: sorted.filter((c) => (c.since_date as string) <= date).reduce((sum, c) => sum + c.mrr * 12, 0),
-      clientNames: sorted.filter((c) => (c.since_date as string) === date).map((c) => c.name),
-    }))
+    const actual = eventDates.map((date) => {
+      const signedUpOnDate = sorted.filter((c) => (c.since_date as string) === date)
+      return {
+        date,
+        arr: sorted.filter((c) => (c.since_date as string) <= date).reduce((sum, c) => sum + c.mrr * 12, 0),
+        clientNames: signedUpOnDate.map((c) => c.name),
+        clientArrs: signedUpOnDate.map((c) => ({ name: c.name, arr: c.mrr * 12 })),
+      }
+    })
 
     const currentArr = actual[actual.length - 1]?.arr ?? 0
 
@@ -340,11 +350,18 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const teamDiscShow = showRates
     .filter((r) => r.activity_type === 'disc')
     .reduce((acc, r) => ({ attended: acc.attended + r.attended, total: acc.total + r.total }), { attended: 0, total: 0 })
-  const teamDemoShow = showRates
-    .filter((r) => r.activity_type === 'demo')
-    .reduce((acc, r) => ({ attended: acc.attended + r.attended, total: acc.total + r.total }), { attended: 0, total: 0 })
+
+  // Demo book rate: attended disc that led to demo bookings
+  const teamDemoBook = Object.values(attendedConversions).reduce(
+    (acc, conv) => ({
+      attended: acc.attended + conv.discAttended,
+      converted: acc.converted + conv.discToDemoConversions,
+    }),
+    { attended: 0, converted: 0 }
+  )
+
   const teamDiscRate = teamDiscShow.total ? Math.round(teamDiscShow.attended / teamDiscShow.total * 100) : null
-  const teamDemoRate = teamDemoShow.total ? Math.round(teamDemoShow.attended / teamDemoShow.total * 100) : null
+  const teamDemoRate = teamDemoBook.attended ? Math.round(teamDemoBook.converted / teamDemoBook.attended * 100) : null
 
   const t = totals
   const pt = prevTotals
@@ -388,6 +405,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     { label: 'ARR',       key: 'arr'         },
     { label: 'Rep',       key: 'rep'          },
   ]
+
+  if (!mounted) {
+    return <div className="flex flex-col gap-[18px]" />
+  }
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -438,17 +459,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               <div className="mono text-[28px] font-extrabold text-ink leading-none">
                 {teamDiscRate !== null ? `${teamDiscRate}%` : '—'}
               </div>
-              <div className="mono text-[10px] text-ink-3 mt-1">
-                {teamDiscShow.attended}/{teamDiscShow.total} attended
-              </div>
             </Card>
             <Card>
-              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo show rate</div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo book rate</div>
               <div className="mono text-[28px] font-extrabold text-ink leading-none">
                 {teamDemoRate !== null ? `${teamDemoRate}%` : '—'}
-              </div>
-              <div className="mono text-[10px] text-ink-3 mt-1">
-                {teamDemoShow.attended}/{teamDemoShow.total} attended
               </div>
             </Card>
           </div>
@@ -609,6 +624,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 {([
                   { label: 'Dials',          color: '#00D4FF', hl: false },
                   { label: 'Conv',           color: '#8B5CF6', hl: false },
+                  { label: 'Conv/Disc',      color: '#8B5CF6', hl: false },
                   { label: 'VM',             color: '#5A6685', hl: false },
                   { label: 'Disc',           color: '#FFB800', hl: true  },
                   { label: 'Disc Show',      color: '#FFB800', hl: true  },
@@ -668,6 +684,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                       {cvRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{cvRate.toFixed(0)}%</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {disc > 0 ? (
+                        <>
+                          <span className="mono text-[12px] font-semibold text-ink">{(conv / disc).toFixed(2)}</span>
+                          <span className="mono text-[10px] text-ink-3 ml-1.5">{((conv / disc) * 100).toFixed(0)}%</span>
+                        </>
+                      ) : <span className="text-ink-3 text-[11px]">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
                       <span className="mono text-[12px] text-ink-2">{vm || '—'}</span>
                     </td>
                     <td className="px-4 py-3 text-right bg-[#FFB800]/[0.04]">
@@ -703,7 +727,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               })}
               {reps.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
                 </tr>
               )}
             </tbody>
@@ -711,36 +735,34 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </div>
       </Card>
 
-      {/* Conversion funnel per rep */}
+      {/* Discovery by hour */}
+      {/* Conversion metrics per rep */}
       <Card>
         <div className="flex items-center justify-between mb-3">
-          <SectionTitle>Conversion funnel · per rep</SectionTitle>
+          <SectionTitle>Conversion pipeline · per rep</SectionTitle>
           <span className="text-[10px] text-ink-3">all time</span>
         </div>
-        <div className="flex items-center gap-2 mb-3 pl-[88px] text-[10px] font-semibold uppercase tracking-[0.6px]">
+        <div className="flex items-center gap-2 mb-3 text-[10px] font-semibold uppercase tracking-[0.6px]">
+          <div className="w-20 shrink-0"></div>
           <div className="flex-1 text-[#FFB800]">Disc booked → attended</div>
           <div className="flex-1 text-[#FFB800]">Attended → demo booked</div>
           <div className="flex-1 text-[#FF3D9A]">Demo booked → attended</div>
           <div className="flex-1 text-[#FF3D9A]">Attended → closed</div>
         </div>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {reps.map((rep) => {
-            const conv = attendedConversions[rep.id]
-            if (!conv || (conv.discBooked === 0 && conv.demoBooked === 0)) return null
+            const repConv = attendedConversions[rep.id]
+            if (!repConv || (repConv.discBooked === 0 && repConv.demoBooked === 0)) return null
 
-            function convColor(converted: number, total: number) {
-              if (total === 0) return '#3A4460'
-              const rate = (converted / total) * 100
-              return rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
-            }
+            const discRate = repConv.discBooked > 0 ? (repConv.discAttended / repConv.discBooked) * 100 : 0
+            const demoBookRate = repConv.discAttended > 0 ? (repConv.discToDemoConversions / repConv.discAttended) * 100 : 0
+            const demoShowRate = repConv.demoBooked > 0 ? (repConv.demoAttended / repConv.demoBooked) * 100 : 0
+            const closeRate = repConv.demoAttended > 0 ? (repConv.demoToClosedConversions / repConv.demoAttended) * 100 : 0
 
-            const discShowRate = conv.discBooked > 0 ? (conv.discAttended / conv.discBooked) * 100 : 0
-            const discConvRate = conv.discAttended > 0 ? (conv.discToDemoConversions / conv.discAttended) * 100 : 0
-            const demoShowRate = conv.demoBooked > 0 ? (conv.demoAttended / conv.demoBooked) * 100 : 0
-            const demoConvRate = conv.demoAttended > 0 ? (conv.demoToClosedConversions / conv.demoAttended) * 100 : 0
+            const barColor = (rate: number) => rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
 
             return (
-              <div key={rep.id} className="flex items-center gap-2 p-3 rounded-lg" style={{ background: 'var(--bg-2)' }}>
+              <div key={rep.id} className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: 'var(--bg-2)' }}>
                 <div className="flex items-center gap-2 w-20 shrink-0">
                   <div className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold" style={{ background: rep.color + '28', color: rep.color }}>
                     {rep.initials}
@@ -748,114 +770,40 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                   <div className="mono text-[10px] font-semibold truncate">{rep.name.split(' ')[0]}</div>
                 </div>
 
-                {/* Disc booked → attended */}
-                <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                  <div className="flex-1 h-2 bg-[#FFB800]/20 rounded overflow-hidden">
-                    {conv.discBooked > 0 && (
-                      <div
-                        className="h-full rounded-l transition-all duration-500"
-                        style={{ width: `${discShowRate}%`, background: convColor(conv.discAttended, conv.discBooked) }}
-                      />
-                    )}
-                  </div>
-                  <div className="w-20 shrink-0 text-right">
-                    {conv.discBooked > 0 ? (
-                      <>
-                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.discAttended, conv.discBooked) }}>
-                          {Math.round(discShowRate)}%
-                        </div>
-                        <div className="mono text-[9px] text-ink-3">{conv.discAttended}/{conv.discBooked}</div>
-                      </>
-                    ) : (
-                      <span className="text-ink-3 text-[10px]">—</span>
-                    )}
+                {/* Metrics */}
+                <div className="flex-1">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.discAttended}/{repConv.discBooked}</div>
+                  <div className="h-1.5 bg-[#FFB800]/20 rounded overflow-hidden">
+                    <div className="h-full rounded-l" style={{ width: `${discRate}%`, background: barColor(discRate) }} />
                   </div>
                 </div>
 
-                {/* Disc attended → demo */}
-                <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                  <div className="flex-1 h-2 bg-[#FFB800]/20 rounded overflow-hidden">
-                    {conv.discAttended > 0 && (
-                      <div
-                        className="h-full rounded-l transition-all duration-500"
-                        style={{ width: `${discConvRate}%`, background: convColor(conv.discToDemoConversions, conv.discAttended) }}
-                      />
-                    )}
-                  </div>
-                  <div className="w-20 shrink-0 text-right">
-                    {conv.discAttended > 0 ? (
-                      <>
-                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.discToDemoConversions, conv.discAttended) }}>
-                          {Math.round(discConvRate)}%
-                        </div>
-                        <div className="mono text-[9px] text-ink-3">{conv.discToDemoConversions}/{conv.discAttended}</div>
-                      </>
-                    ) : (
-                      <span className="text-ink-3 text-[10px]">—</span>
-                    )}
+                <div className="flex-1">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.discToDemoConversions}/{repConv.discAttended}</div>
+                  <div className="h-1.5 bg-[#FFB800]/20 rounded overflow-hidden">
+                    <div className="h-full rounded-l" style={{ width: `${demoBookRate}%`, background: barColor(demoBookRate) }} />
                   </div>
                 </div>
 
-                {/* Demo booked → attended */}
-                <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                  <div className="flex-1 h-2 bg-[#FF3D9A]/20 rounded overflow-hidden">
-                    {conv.demoBooked > 0 && (
-                      <div
-                        className="h-full rounded-l transition-all duration-500"
-                        style={{ width: `${demoShowRate}%`, background: convColor(conv.demoAttended, conv.demoBooked) }}
-                      />
-                    )}
-                  </div>
-                  <div className="w-20 shrink-0 text-right">
-                    {conv.demoBooked > 0 ? (
-                      <>
-                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.demoAttended, conv.demoBooked) }}>
-                          {Math.round(demoShowRate)}%
-                        </div>
-                        <div className="mono text-[9px] text-ink-3">{conv.demoAttended}/{conv.demoBooked}</div>
-                      </>
-                    ) : (
-                      <span className="text-ink-3 text-[10px]">—</span>
-                    )}
+                <div className="flex-1">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.demoAttended}/{repConv.demoBooked}</div>
+                  <div className="h-1.5 bg-[#FF3D9A]/20 rounded overflow-hidden">
+                    <div className="h-full rounded-l" style={{ width: `${demoShowRate}%`, background: barColor(demoShowRate) }} />
                   </div>
                 </div>
 
-                {/* Demo attended → closed */}
-                <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                  <div className="flex-1 h-2 bg-[#FF3D9A]/20 rounded overflow-hidden">
-                    {conv.demoAttended > 0 && (
-                      <div
-                        className="h-full rounded-l transition-all duration-500"
-                        style={{ width: `${demoConvRate}%`, background: convColor(conv.demoToClosedConversions, conv.demoAttended) }}
-                      />
-                    )}
-                  </div>
-                  <div className="w-20 shrink-0 text-right">
-                    {conv.demoAttended > 0 ? (
-                      <>
-                        <div className="mono text-[11px] font-bold" style={{ color: convColor(conv.demoToClosedConversions, conv.demoAttended) }}>
-                          {Math.round(demoConvRate)}%
-                        </div>
-                        <div className="mono text-[9px] text-ink-3">{conv.demoToClosedConversions}/{conv.demoAttended}</div>
-                      </>
-                    ) : (
-                      <span className="text-ink-3 text-[10px]">—</span>
-                    )}
+                <div className="flex-1">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.demoToClosedConversions}/{repConv.demoAttended}</div>
+                  <div className="h-1.5 bg-[#FF3D9A]/20 rounded overflow-hidden">
+                    <div className="h-full rounded-l" style={{ width: `${closeRate}%`, background: barColor(closeRate) }} />
                   </div>
                 </div>
               </div>
             )
-          })}
-          {reps.every((r) => {
-            const conv = attendedConversions[r.id]
-            return !conv || (conv.discBooked === 0 && conv.demoBooked === 0)
-          }) && (
-            <div className="py-6 text-center text-ink-3 text-[12px]">No meetings yet — will track disc→attended→demo→attended→closed</div>
-          )}
+          }).filter(Boolean)}
         </div>
       </Card>
 
-      {/* Discovery by hour */}
       {(() => {
         const HOURS = Array.from({ length: 14 }, (_, i) => i + 7) // 7am–8pm
         const hourData = HOURS.map((h) => ({

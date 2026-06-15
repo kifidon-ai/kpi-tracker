@@ -308,6 +308,7 @@ interface ArrPoint {
   date: string
   arr: number
   clientNames?: string[]
+  clientArrs?: { name: string; arr: number }[]
 }
 
 interface ArrGrowthChartProps {
@@ -469,6 +470,7 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
         const topPct  = (p[1] / height) * 100
         const flipX = leftPct > 68
         const flipY = topPct < 28
+        const clientArrs = actual[hovered].clientArrs ?? []
         return (
           <div style={{
             position: 'absolute',
@@ -480,19 +482,33 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
             background: '#0C1220',
             border: '1px solid #1E2D45',
             borderRadius: 6,
-            padding: '7px 10px',
-            minWidth: 120,
-            maxWidth: 220,
+            padding: '8px 10px',
+            minWidth: 160,
+            maxWidth: 280,
             boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
           }}>
-            <div style={{ fontSize: 10, color: '#00E5A0', fontFamily: 'JetBrains Mono, monospace', marginBottom: 5, letterSpacing: '0.4px' }}>
+            <div style={{ fontSize: 10, color: '#00E5A0', fontFamily: 'JetBrains Mono, monospace', marginBottom: 4, letterSpacing: '0.4px' }}>
               {new Date(actual[hovered].date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </div>
-            {hoveredClients.map((name, i) => (
-              <div key={i} style={{ fontSize: 11, color: '#D8DEEF', lineHeight: '1.6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {name}
-              </div>
-            ))}
+            <div style={{ fontSize: 10, color: '#5A6685', fontFamily: 'JetBrains Mono, monospace', marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid #1E2D45' }}>
+              Total ARR: {formatter(Math.round(actual[hovered].arr))}
+            </div>
+            {clientArrs.length > 0 ? (
+              clientArrs.map((client, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#D8DEEF', lineHeight: '1.5', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{client.name}</span>
+                  <span style={{ color: '#00E5A0', fontFamily: 'JetBrains Mono, monospace', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    {formatter(Math.round(client.arr))}
+                  </span>
+                </div>
+              ))
+            ) : (
+              hoveredClients.map((name, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#D8DEEF', lineHeight: '1.5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {name}
+                </div>
+              ))
+            )}
           </div>
         )
       })()}

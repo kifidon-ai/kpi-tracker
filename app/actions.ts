@@ -406,17 +406,21 @@ export async function addCalendarEntryOnlyAction(data: {
 
 export async function getAttendedConversionsAction() {
   try {
-    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
+    // Historical data: events scheduled up to and including today
+    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
     const attendedDisc = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
+      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
 
-    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
+    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
     const attendedDemos = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), lt(calendar.scheduled_date, sql`CURRENT_DATE`)))
+      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), lte(calendar.scheduled_date, sql`CURRENT_DATE`)))
+
+    // All demos ever (including future) to check conversions from attended disc
+    const allDemosIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))
 
     const closedDeals = await db.select().from(closed_deals)
 
@@ -441,12 +445,13 @@ export async function getAttendedConversionsAction() {
       const repAttendedDisc = attendedDisc.filter((d) => d.rep_id === repId)
       const repAllDemos = allDemos.filter((d) => d.rep_id === repId)
       const repAttendedDemos = attendedDemos.filter((d) => d.rep_id === repId)
+      const repAllDemosIncludingFuture = allDemosIncludingFuture.filter((d) => d.rep_id === repId)
       const repClosed = closedDeals.filter((d) => d.rep_id === repId)
 
-      // Count attended disc that led to a demo booking (same company, later date)
+      // Count attended disc that led to a demo booking anytime (including future demos)
       let discToDemoCount = 0
       for (const disc of repAttendedDisc) {
-        const hasDemo = repAllDemos.some(
+        const hasDemo = repAllDemosIncludingFuture.some(
           (demo) => demo.company_name === disc.company_name && demo.scheduled_date > disc.scheduled_date,
         )
         if (hasDemo) discToDemoCount++

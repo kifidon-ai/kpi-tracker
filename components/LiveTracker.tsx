@@ -353,24 +353,37 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
                   <div className="mono text-[36px] font-extrabold text-ink leading-none">{v}</div>
                   <div className="text-[10px] text-ink-3">{def.label}</div>
                 </div>
-                {i < KEY_METRICS.length - 1 && (
-                  <div className="flex-1 flex items-center px-4 min-w-10">
-                    <div className="flex-1 h-px bg-muted" />
-                    <span className="text-muted text-[10px] leading-none">▶</span>
-                  </div>
-                )}
+                {i < KEY_METRICS.length - 1 && (() => {
+                  const nextKey = KEY_METRICS[i + 1]
+                  const nextDef = ALL_METRICS.find((m) => m.k === nextKey)!
+                  const nextV = (counts[nextKey] as number) ?? 0
+                  const rate = v ? (nextV / v * 100) : 0
+                  return (
+                    <div className="flex-1 flex flex-col items-center gap-1 px-1.5 min-w-12">
+                      <div className={`mono text-[11px] font-bold ${rate > 0 ? 'text-ink-2' : 'text-ink-3'}`}>
+                        {rate.toFixed(0)}%
+                      </div>
+                      <div className="flex items-center w-full">
+                        <div className="flex-1 h-px bg-muted" />
+                        <span className="text-muted text-[10px] leading-none">▶</span>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}
         </div>
 
         <div className="mt-6 pt-5 border-t border-line">
-          <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">Team vs goal</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">
+            {isTeam ? 'Team vs goal' : `${rep?.name.split(' ')[0]} vs goal`}
+          </div>
           <div className="grid grid-cols-4 gap-3.5">
             {KEY_METRICS.map((k) => {
               const def = ALL_METRICS.find((m) => m.k === k)!
-              const v = (teamCounts[k] as number) ?? 0
-              const t = teamTargets[k] ?? 1
+              const v = (counts[k] as number) ?? 0
+              const t = effectiveTargets[k] ?? 1
               return (
                 <div key={k} className="flex flex-col items-center gap-2.5 py-1">
                   <Ring value={v} target={t} color={def.color} size={110} stroke={9} label={def.short} />

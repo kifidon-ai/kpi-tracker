@@ -65,9 +65,7 @@ export function getPeriodBounds(range: LiveRange, offset: number): { start: Date
     return { start, end }
   }
   const start = new Date(today.getFullYear(), today.getMonth() - offset, 1)
-  const end = offset === 0
-    ? new Date(today)
-    : new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
+  const end = new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
   return { start, end }
 }
 
