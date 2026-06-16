@@ -406,21 +406,21 @@ export async function addCalendarEntryOnlyAction(data: {
 
 export async function getAttendedConversionsAction() {
   try {
-    // Include past meetings always; include today's only if resolved (attended / no_show / rescheduled)
-    const resolvedToday = and(eq(calendar.scheduled_date, sql`CURRENT_DATE`), or(eq(calendar.status, 'attended'), eq(calendar.status, 'no_show')))
-    const pastOrResolvedToday = or(lt(calendar.scheduled_date, sql`CURRENT_DATE`), resolvedToday)
+    // Include past meetings always; include today and future meetings only if resolved (attended / no_show)
+    const resolved = or(eq(calendar.status, 'attended'), eq(calendar.status, 'no_show'))
+    const pastOrResolved = or(lt(calendar.scheduled_date, sql`CURRENT_DATE`), and(gte(calendar.scheduled_date, sql`CURRENT_DATE`), resolved))
 
-    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), pastOrResolvedToday))
+    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), pastOrResolved))
     const attendedDisc = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), pastOrResolvedToday))
+      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), pastOrResolved))
 
-    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), pastOrResolvedToday))
+    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), pastOrResolved))
     const attendedDemos = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), pastOrResolvedToday))
+      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), pastOrResolved))
 
     // All demos ever (including future) to check conversions from attended disc
     const allDemosIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))
