@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 import { fmtMoney, fmtNum, pct } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
-import { LineChart, FunnelBar, Speedometer, ArrGrowthChart } from './charts'
+import { LineChart, Speedometer, ArrGrowthChart } from './charts'
 import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getShowRatesAction, getAttendedConversionsAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
@@ -600,14 +600,70 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </Card>
 
         <Card className="flex flex-col">
-          <SectionTitle>Funnel</SectionTitle>
-          <FunnelBar stages={[
-            { label: 'Dials',         value: t.dials ?? 0, color: '#00D4FF' },
-            { label: 'Conversations', value: t.dm_conv ?? 0, color: '#8B5CF6' },
-            { label: 'Discovery',     value: t.disc  ?? 0, color: '#FFB800' },
-            { label: 'Demo',          value: t.demo  ?? 0, color: '#FF3D9A' },
-            { label: 'Won',           value: closedCount,   color: '#00E5A0' },
-          ]} />
+          <SectionTitle>Weekly MRR & ARR</SectionTitle>
+          <div className="flex flex-col gap-2 mt-2">
+            {(() => {
+              const weeklyMetrics: Array<{ week: number; label: string; mrr: number; arr: number }> = []
+              const today = new Date()
+              today.setHours(0, 0, 0, 0)
+              const dow = today.getDay()
+              const daysFromMonday = dow === 0 ? 6 : dow - 1
+              const thisMonday = new Date(today)
+              thisMonday.setDate(today.getDate() - daysFromMonday)
+
+              for (let w = 5; w >= 0; w--) {
+                const start = new Date(thisMonday)
+                start.setDate(thisMonday.getDate() - w * 7)
+                const end = w === 0 ? new Date(today) : new Date(start)
+                if (w > 0) end.setDate(start.getDate() + 6)
+                const endStr = toISO(end)
+
+                const weekMrr = clients
+                  .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+                  .reduce((sum, c) => sum + c.mrr, 0)
+
+                weeklyMetrics.push({
+                  week: w,
+                  label: w === 0 ? 'This week' : (start.getMonth() + 1) + '/' + start.getDate(),
+                  mrr: weekMrr,
+                  arr: weekMrr * 12,
+                })
+              }
+
+              return weeklyMetrics.map((wm, i) => {
+                const prev = i > 0 ? weeklyMetrics[i - 1] : null
+                const mrrJump = prev ? wm.mrr - prev.mrr : wm.mrr
+                const arrJump = prev ? wm.arr - prev.arr : wm.arr
+
+                return (
+                  <div key={wm.week} className="p-2.5 rounded-lg" style={{ background: 'var(--bg-2)' }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold text-ink-2">{wm.label}</span>
+                      <span className="text-[10px] text-ink-3">
+                        MRR: <span className="mono font-semibold text-ink">{fmtMoney(wm.mrr)}</span>
+                      </span>
+                    </div>
+                    {prev && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <div className="text-[9px] text-ink-3 mb-0.5">MRR jump</div>
+                          <div className="mono text-[13px] font-bold" style={{ color: mrrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                            {mrrJump >= 0 ? '+' : ''}{fmtMoney(mrrJump)}
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-[9px] text-ink-3 mb-0.5">ARR jump</div>
+                          <div className="mono text-[13px] font-bold" style={{ color: arrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                            {arrJump >= 0 ? '+' : ''}{fmtMoney(arrJump)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            })()}
+          </div>
         </Card>
       </div>
 
