@@ -77,6 +77,8 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
 export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
   const [mounted, setMounted] = useState(false)
   const [showAllWeeksModal, setShowAllWeeksModal] = useState(false)
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+  const [hoveredWeek, setHoveredWeek] = useState<number | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -641,8 +643,27 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                   const mrrJump = prev ? wm.mrr - prev.mrr : 0
                   const arrJump = prev ? wm.arr - prev.arr : 0
 
+                  const weekStart = new Date(thisMonday)
+                  weekStart.setDate(thisMonday.getDate() - wm.week * 7)
+                  const weekEnd = wm.week === 0 ? new Date(today) : new Date(weekStart)
+                  if (wm.week > 0) weekEnd.setDate(weekStart.getDate() + 6)
+                  const weekEndStr = toISO(weekEnd)
+                  const weekStartStr = toISO(weekStart)
+
+                  const newClientsThisWeek = clients.filter((c) =>
+                    c.since_date && (c.since_date as string) >= weekStartStr && (c.since_date as string) <= weekEndStr
+                  )
+                  const totalMrrAdded = newClientsThisWeek.reduce((sum, c) => sum + c.mrr, 0)
+
                   return (
-                    <div key={wm.week} className="p-2.5 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-2)' }}>
+                    <div
+                      key={wm.week}
+                      className="p-2.5 rounded-lg flex-shrink-0 relative"
+                      style={{ background: 'var(--bg-2)' }}
+                      onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
+                      onMouseEnter={() => setHoveredWeek(wm.week)}
+                      onMouseLeave={() => setHoveredWeek(null)}
+                    >
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-[11px] font-semibold text-ink-2">{wm.label}</span>
                         <span className="text-[10px] text-ink-3">
@@ -663,6 +684,23 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                               {arrJump >= 0 ? '+' : ''}{fmtMoney(arrJump)}
                             </div>
                           </div>
+                        </div>
+                      )}
+                      {newClientsThisWeek.length > 0 && hoveredWeek === wm.week && (
+                        <div
+                          className="fixed text-[11px] p-2.5 rounded z-50 pointer-events-none font-semibold"
+                          style={{
+                            left: tooltipPos.x + 12 + 'px',
+                            top: tooltipPos.y + 'px',
+                            background: '#0A0E1A',
+                            color: '#D8DEEF'
+                          }}
+                        >
+                          {newClientsThisWeek.map((c, idx) => (
+                            <div key={idx} className="whitespace-nowrap">
+                              {c.name} ({fmtMoney(c.mrr)})
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -954,13 +992,13 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAllWeeksModal(false)}>
           <div className="bg-card-top w-full max-w-2xl max-h-[90vh] rounded-lg border border-line flex flex-col" style={{ background: 'var(--card-top)' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-line">
-              <h2 className="text-lg font-bold">Weekly MRR & ARR History</h2>
-              <button onClick={() => setShowAllWeeksModal(false)} className="text-ink-2 hover:text-ink transition-colors text-2xl leading-none">×</button>
+              <h2 className="text-2xl font-bold">Weekly MRR & ARR History</h2>
+              <button onClick={() => setShowAllWeeksModal(false)} className="text-ink-2 hover:text-ink transition-colors text-3xl leading-none">×</button>
             </div>
             <div className="overflow-y-auto flex-1 px-6 py-4">
               <div className="flex flex-col gap-2">
                 {(() => {
-                  const allWeekly: Array<{ label: string; mrr: number; arr: number }> = []
+                  const allWeekly: Array<{ label: string; mrr: number; arr: number; startStr: string; endStr: string }> = []
 
                   const firstClientDate = clients
                     .filter((c) => c.since_date)
@@ -986,6 +1024,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                     end.setDate(current.getDate() + 6)
                     const endCapped = end > today ? new Date(today) : end
                     const endStr = toISO(endCapped)
+                    const startStr = toISO(current)
 
                     const weekMrr = clients
                       .filter((c) => c.since_date && (c.since_date as string) <= endStr)
@@ -996,6 +1035,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                         label: current.getTime() === thisMonday.getTime() ? 'This week' : (current.getMonth() + 1) + '/' + current.getDate(),
                         mrr: weekMrr,
                         arr: weekMrr * 12,
+                        startStr,
+                        endStr,
                       })
                     }
 
@@ -1008,28 +1049,56 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                     const mrrJump = prev ? w.mrr - prev.mrr : 0
                     const arrJump = prev ? w.arr - prev.arr : 0
 
+                    const newClientsThisWeek = clients.filter((c) =>
+                      c.since_date && (c.since_date as string) >= w.startStr && (c.since_date as string) <= w.endStr
+                    )
+
                     return (
-                      <div key={w.label} className="p-3 rounded-lg" style={{ background: 'var(--bg-2)' }}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] font-semibold text-ink-2">{w.label}</span>
-                          <span className="text-[10px] text-ink-3">
+                      <div
+                        key={w.label}
+                        className="p-4 rounded-lg relative"
+                        style={{ background: 'var(--bg-2)' }}
+                        onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
+                        onMouseEnter={() => setHoveredWeek(w.label as any)}
+                        onMouseLeave={() => setHoveredWeek(null)}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-[16px] font-semibold text-ink-2">{w.label}</span>
+                          <span className="text-[14px] text-ink-3">
                             MRR: <span className="mono font-semibold text-ink">{fmtMoney(w.mrr)}</span>
                           </span>
                         </div>
                         {prev && (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3">
                             <div className="flex-1">
-                              <div className="text-[9px] text-ink-3 mb-0.5">MRR jump</div>
-                              <div className="mono text-[12px] font-bold" style={{ color: mrrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                              <div className="text-[13px] text-ink-3 mb-1">MRR jump</div>
+                              <div className="mono text-[18px] font-bold" style={{ color: mrrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
                                 {mrrJump >= 0 ? '+' : ''}{fmtMoney(mrrJump)}
                               </div>
                             </div>
                             <div className="flex-1">
-                              <div className="text-[9px] text-ink-3 mb-0.5">ARR jump</div>
-                              <div className="mono text-[12px] font-bold" style={{ color: arrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                              <div className="text-[13px] text-ink-3 mb-1">ARR jump</div>
+                              <div className="mono text-[18px] font-bold" style={{ color: arrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
                                 {arrJump >= 0 ? '+' : ''}{fmtMoney(arrJump)}
                               </div>
                             </div>
+                          </div>
+                        )}
+                        {newClientsThisWeek.length > 0 && hoveredWeek === w.label && (
+                          <div
+                            className="fixed text-[13px] p-2.5 rounded z-50 pointer-events-none font-semibold"
+                            style={{
+                              left: tooltipPos.x + 12 + 'px',
+                              top: tooltipPos.y + 'px',
+                              background: '#0A0E1A',
+                              color: '#D8DEEF'
+                            }}
+                          >
+                            {newClientsThisWeek.map((c, idx) => (
+                              <div key={idx} className="whitespace-nowrap">
+                                {c.name} ({fmtMoney(c.mrr)})
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
