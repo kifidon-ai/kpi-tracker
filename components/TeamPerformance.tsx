@@ -76,6 +76,7 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
 
 export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
   const [mounted, setMounted] = useState(false)
+  const [showAllWeeksModal, setShowAllWeeksModal] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -600,69 +601,75 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </Card>
 
         <Card className="flex flex-col">
-          <SectionTitle>Weekly MRR & ARR</SectionTitle>
-          <div className="flex flex-col gap-2 mt-2">
-            {(() => {
-              const weeklyMetrics: Array<{ week: number; label: string; mrr: number; arr: number }> = []
-              const today = new Date()
-              today.setHours(0, 0, 0, 0)
-              const dow = today.getDay()
-              const daysFromMonday = dow === 0 ? 6 : dow - 1
-              const thisMonday = new Date(today)
-              thisMonday.setDate(today.getDate() - daysFromMonday)
+          <SectionTitle right={
+            <button onClick={() => setShowAllWeeksModal(true)} className="text-[10px] text-ink-2 hover:text-ink transition-colors">View all</button>
+          }>Weekly MRR & ARR</SectionTitle>
+          <div className="overflow-y-auto" style={{ height: 280, marginTop: 8 }}>
+            <div className="flex flex-col gap-2 pr-2">
+              {(() => {
+                const weeklyMetrics: Array<{ week: number; label: string; mrr: number; arr: number }> = []
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const dow = today.getDay()
+                const daysFromMonday = dow === 0 ? 6 : dow - 1
+                const thisMonday = new Date(today)
+                thisMonday.setDate(today.getDate() - daysFromMonday)
 
-              for (let w = 5; w >= 0; w--) {
-                const start = new Date(thisMonday)
-                start.setDate(thisMonday.getDate() - w * 7)
-                const end = w === 0 ? new Date(today) : new Date(start)
-                if (w > 0) end.setDate(start.getDate() + 6)
-                const endStr = toISO(end)
+                // Last 8 weeks
+                for (let w = 7; w >= 0; w--) {
+                  const start = new Date(thisMonday)
+                  start.setDate(thisMonday.getDate() - w * 7)
+                  const end = w === 0 ? new Date(today) : new Date(start)
+                  if (w > 0) end.setDate(start.getDate() + 6)
+                  const endStr = toISO(end)
 
-                const weekMrr = clients
-                  .filter((c) => c.since_date && (c.since_date as string) <= endStr)
-                  .reduce((sum, c) => sum + c.mrr, 0)
+                  const weekMrr = clients
+                    .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+                    .reduce((sum, c) => sum + c.mrr, 0)
 
-                weeklyMetrics.push({
-                  week: w,
-                  label: w === 0 ? 'This week' : (start.getMonth() + 1) + '/' + start.getDate(),
-                  mrr: weekMrr,
-                  arr: weekMrr * 12,
-                })
-              }
+                  weeklyMetrics.push({
+                    week: w,
+                    label: w === 0 ? 'This week' : (start.getMonth() + 1) + '/' + start.getDate(),
+                    mrr: weekMrr,
+                    arr: weekMrr * 12,
+                  })
+                }
 
-              return weeklyMetrics.map((wm, i) => {
-                const prev = i > 0 ? weeklyMetrics[i - 1] : null
-                const mrrJump = prev ? wm.mrr - prev.mrr : wm.mrr
-                const arrJump = prev ? wm.arr - prev.arr : wm.arr
+                const reversed = weeklyMetrics.reverse()
+                return reversed.map((wm, i) => {
+                  const prev = i < reversed.length - 1 ? reversed[i + 1] : null
+                  const mrrJump = prev ? wm.mrr - prev.mrr : 0
+                  const arrJump = prev ? wm.arr - prev.arr : 0
 
-                return (
-                  <div key={wm.week} className="p-2.5 rounded-lg" style={{ background: 'var(--bg-2)' }}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-semibold text-ink-2">{wm.label}</span>
-                      <span className="text-[10px] text-ink-3">
-                        MRR: <span className="mono font-semibold text-ink">{fmtMoney(wm.mrr)}</span>
-                      </span>
-                    </div>
-                    {prev && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <div className="text-[9px] text-ink-3 mb-0.5">MRR jump</div>
-                          <div className="mono text-[13px] font-bold" style={{ color: mrrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
-                            {mrrJump >= 0 ? '+' : ''}{fmtMoney(mrrJump)}
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-[9px] text-ink-3 mb-0.5">ARR jump</div>
-                          <div className="mono text-[13px] font-bold" style={{ color: arrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
-                            {arrJump >= 0 ? '+' : ''}{fmtMoney(arrJump)}
-                          </div>
-                        </div>
+                  return (
+                    <div key={wm.week} className="p-2.5 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-2)' }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px] font-semibold text-ink-2">{wm.label}</span>
+                        <span className="text-[10px] text-ink-3">
+                          MRR: <span className="mono font-semibold text-ink">{fmtMoney(wm.mrr)}</span>
+                        </span>
                       </div>
-                    )}
-                  </div>
-                )
-              })
-            })()}
+                      {prev && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <div className="text-[9px] text-ink-3 mb-0.5">MRR jump</div>
+                            <div className="mono text-[13px] font-bold" style={{ color: mrrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                              {mrrJump >= 0 ? '+' : ''}{fmtMoney(mrrJump)}
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-[9px] text-ink-3 mb-0.5">ARR jump</div>
+                            <div className="mono text-[13px] font-bold" style={{ color: arrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                              {arrJump >= 0 ? '+' : ''}{fmtMoney(arrJump)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              })()}
+            </div>
           </div>
         </Card>
       </div>
@@ -941,6 +948,99 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           </Card>
         )
       })()}
+
+      {/* All weeks modal */}
+      {showAllWeeksModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAllWeeksModal(false)}>
+          <div className="bg-card-top w-full max-w-2xl max-h-[90vh] rounded-lg border border-line flex flex-col" style={{ background: 'var(--card-top)' }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-line">
+              <h2 className="text-lg font-bold">Weekly MRR & ARR History</h2>
+              <button onClick={() => setShowAllWeeksModal(false)} className="text-ink-2 hover:text-ink transition-colors text-2xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4">
+              <div className="flex flex-col gap-2">
+                {(() => {
+                  const allWeekly: Array<{ label: string; mrr: number; arr: number }> = []
+
+                  const firstClientDate = clients
+                    .filter((c) => c.since_date)
+                    .sort((a, b) => (a.since_date as string).localeCompare(b.since_date as string))[0]?.since_date
+
+                  if (!firstClientDate) return <div className="text-ink-3 text-[12px]">No data yet</div>
+
+                  const startWeek = new Date((firstClientDate as string) + 'T00:00')
+                  const startDow = startWeek.getDay()
+                  const startDaysFromMonday = startDow === 0 ? 6 : startDow - 1
+                  startWeek.setDate(startWeek.getDate() - startDaysFromMonday)
+
+                  const today = new Date()
+                  today.setHours(0, 0, 0, 0)
+                  const dow = today.getDay()
+                  const daysFromMonday = dow === 0 ? 6 : dow - 1
+                  const thisMonday = new Date(today)
+                  thisMonday.setDate(today.getDate() - daysFromMonday)
+
+                  let current = new Date(startWeek)
+                  while (current <= thisMonday) {
+                    const end = new Date(current)
+                    end.setDate(current.getDate() + 6)
+                    const endCapped = end > today ? new Date(today) : end
+                    const endStr = toISO(endCapped)
+
+                    const weekMrr = clients
+                      .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+                      .reduce((sum, c) => sum + c.mrr, 0)
+
+                    if (weekMrr > 0) {
+                      allWeekly.push({
+                        label: current.getTime() === thisMonday.getTime() ? 'This week' : (current.getMonth() + 1) + '/' + current.getDate(),
+                        mrr: weekMrr,
+                        arr: weekMrr * 12,
+                      })
+                    }
+
+                    current.setDate(current.getDate() + 7)
+                  }
+
+                  const reversed = allWeekly.reverse()
+                  return reversed.map((w, i) => {
+                    const prev = i < reversed.length - 1 ? reversed[i + 1] : null
+                    const mrrJump = prev ? w.mrr - prev.mrr : 0
+                    const arrJump = prev ? w.arr - prev.arr : 0
+
+                    return (
+                      <div key={w.label} className="p-3 rounded-lg" style={{ background: 'var(--bg-2)' }}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[11px] font-semibold text-ink-2">{w.label}</span>
+                          <span className="text-[10px] text-ink-3">
+                            MRR: <span className="mono font-semibold text-ink">{fmtMoney(w.mrr)}</span>
+                          </span>
+                        </div>
+                        {prev && (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <div className="text-[9px] text-ink-3 mb-0.5">MRR jump</div>
+                              <div className="mono text-[12px] font-bold" style={{ color: mrrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                                {mrrJump >= 0 ? '+' : ''}{fmtMoney(mrrJump)}
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-[9px] text-ink-3 mb-0.5">ARR jump</div>
+                              <div className="mono text-[12px] font-bold" style={{ color: arrJump >= 0 ? '#00E5A0' : '#FF5468' }}>
+                                {arrJump >= 0 ? '+' : ''}{fmtMoney(arrJump)}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Client breakdown */}
       <Card padding={0}>
