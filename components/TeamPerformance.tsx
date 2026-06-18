@@ -78,7 +78,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const [mounted, setMounted] = useState(false)
   const [showAllWeeksModal, setShowAllWeeksModal] = useState(false)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
-  const [hoveredWeek, setHoveredWeek] = useState<number | null>(null)
+  const [hoveredWeek, setHoveredWeek] = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -661,7 +661,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                       className="p-2.5 rounded-lg flex-shrink-0 relative"
                       style={{ background: 'var(--bg-2)' }}
                       onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
-                      onMouseEnter={() => setHoveredWeek(wm.week)}
+                      onMouseEnter={() => setHoveredWeek(wm.label)}
                       onMouseLeave={() => setHoveredWeek(null)}
                     >
                       <div className="flex items-center justify-between mb-1.5">
@@ -686,7 +686,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                           </div>
                         </div>
                       )}
-                      {newClientsThisWeek.length > 0 && hoveredWeek === wm.week && (
+                      {newClientsThisWeek.length > 0 && hoveredWeek === wm.label && (
                         <div
                           className="fixed text-[11px] p-2.5 rounded z-50 pointer-events-none font-semibold"
                           style={{
@@ -1059,7 +1059,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                         className="p-4 rounded-lg relative"
                         style={{ background: 'var(--bg-2)' }}
                         onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
-                        onMouseEnter={() => setHoveredWeek(w.label as any)}
+                        onMouseEnter={() => setHoveredWeek(w.label)}
                         onMouseLeave={() => setHoveredWeek(null)}
                       >
                         <div className="flex items-center justify-between mb-3">
