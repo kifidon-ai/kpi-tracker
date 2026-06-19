@@ -532,3 +532,13 @@ export async function uncheckDailyItemAction(dateKey: string, itemId: string, re
     ))
   return { ok: true }
 }
+
+export async function resetSectionAction(dateKey: string, itemIds: string[]) {
+  await db
+    .delete(daily_checklist)
+    .where(and(
+      eq(daily_checklist.date_key, dateKey),
+      sql`${daily_checklist.item_id} = ANY(${sql.raw(`ARRAY[${itemIds.map(id => `'${id}'`).join(',')}]`)})`,
+    ))
+  return { ok: true }
+}

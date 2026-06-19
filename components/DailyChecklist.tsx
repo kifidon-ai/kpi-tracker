@@ -5,7 +5,7 @@ import type { Rep } from '@/lib/types'
 import { SectionTitle } from './ui/primitives'
 import { Avatar } from './ui/Avatar'
 import { createClient } from '@/utils/supabase/client'
-import { getDailyChecklistAction, checkDailyItemAction, uncheckDailyItemAction } from '@/app/actions'
+import { getDailyChecklistAction, checkDailyItemAction, uncheckDailyItemAction, resetSectionAction } from '@/app/actions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,16 @@ const SECTIONS: Section[] = [
     items: [
       { id: 'lm-1', label: 'Day of Reminder emails', mode: 'multi' },
       { id: 'lm-2', label: 'T-1 Reminder Emails',   mode: 'multi' },
+    ],
+  },
+  {
+    id: 'post-sprint',
+    title: 'Post Sprint Checklist',
+    time: '10am – 4:30pm',
+    color: '#FFB020',
+    items: [
+      { id: 'ps-1', label: 'Send out Discovery bookings', mode: 'multi' },
+      { id: 'ps-2', label: 'Respond to any follow up emails', mode: 'multi' },
     ],
   },
   {
@@ -281,6 +291,18 @@ export function DailyChecklist({ reps, currentRepId }: DailyChecklistProps) {
     else await uncheckDailyItemAction(dateKey, itemId, repId)
   }
 
+  async function resetSection(itemIds: string[]) {
+    const itemIdSet = new Set(itemIds)
+    setChecks((prev) => {
+      const updated = { ...prev }
+      for (const itemId of itemIds) {
+        delete updated[itemId]
+      }
+      return updated
+    })
+    await resetSectionAction(dateKey, itemIds)
+  }
+
   const allExpected = SECTIONS.flatMap((s) => collectExpected(s.items, activeReps))
   const { total, done } = calcProgress(allExpected, checks)
   const pct = total > 0 ? (done / total) * 100 : 0
@@ -311,6 +333,9 @@ export function DailyChecklist({ reps, currentRepId }: DailyChecklistProps) {
         {SECTIONS.map((section) => {
           const secExp = collectExpected(section.items, activeReps)
           const { total: st, done: sd } = calcProgress(secExp, checks)
+          const isTimmy = currentRepId === 'c6632466-befd-416f-abea-f0cfaa311ae1'
+          const isPostSprint = section.id === 'post-sprint'
+
           return (
             <div key={section.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -318,6 +343,33 @@ export function DailyChecklist({ reps, currentRepId }: DailyChecklistProps) {
                 <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{section.title}</span>
                 <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{section.time}</span>
                 <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, color: sd === st && st > 0 ? section.color : 'var(--ink-3)', marginLeft: 6 }}>{sd}/{st}</span>
+                {isTimmy && isPostSprint && (
+                  <button
+                    type="button"
+                    onClick={() => resetSection(section.items.map(item => item.id))}
+                    style={{
+                      fontSize: 10,
+                      padding: '4px 8px',
+                      background: 'transparent',
+                      border: `1px solid ${section.color}22`,
+                      borderRadius: 4,
+                      color: section.color,
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      transition: 'all 150ms',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = section.color + '11'
+                      e.currentTarget.style.borderColor = section.color + '66'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent'
+                      e.currentTarget.style.borderColor = section.color + '22'
+                    }}
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
               <div style={{ background: 'var(--column-bg)', border: '1px solid var(--line)', borderLeft: `3px solid ${section.color}`, borderRadius: 10, padding: '8px 14px' }}>
                 {section.items.map((item) => (
