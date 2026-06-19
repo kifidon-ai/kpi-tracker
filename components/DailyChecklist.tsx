@@ -47,29 +47,12 @@ const SECTIONS: Section[] = [
     time: '4:30pm – End of Day · Weekend',
     color: '#00E5A0',
     items: [
-      {
-        id: 'pm-1',
-        label: 'Prospect/Attio Housekeeping (4:30 EST)',
-        mode: 'shared',
-        children: [
-          { id: 'pm-1-2', label: 'Cold Call transcription and Notes in Attio', mode: 'multi' },
-          {
-            id: 'pm-1-3',
-            label: 'Next day meeting notes',
-            mode: 'assigned',
-            assignedNames: ['mujeeb'],
-            children: [
-              { id: 'pm-1-3-1', label: 'Name',         bullet: true },
-              { id: 'pm-1-3-2', label: 'Phone number', bullet: true },
-              { id: 'pm-1-3-3', label: 'Notes',        bullet: true },
-              { id: 'pm-1-3-4', label: 'Website',      bullet: true },
-              { id: 'pm-1-3-5', label: 'LinkedIn',     bullet: true },
-            ],
-          },
-          { id: 'pm-1-4', label: 'Task Scheduling', mode: 'multi' },
-        ],
-      },
-      { id: 'pm-2', label: 'Weekly Lead Generation (Weekend)', mode: 'assigned', assignedNames: ['timmy', 'mujeeb'] },
+      { id: 'pm-1', label: 'Responded to follow up emails', mode: 'multi' },
+      { id: 'pm-2', label: 'Updated Attio Pipeline for the next day', mode: 'multi' },
+      { id: 'pm-3', label: 'Set tasks for this weeks clients', mode: 'multi' },
+      { id: 'pm-4', label: 'Colour Code the following meetings based on assignment', mode: 'multi' },
+      { id: 'pm-5', label: 'Transcribe Cold calls and put them in attio Notes', mode: 'multi' },
+      { id: 'pm-6', label: 'Confirm Discovery/Demo today have notes', mode: 'multi' },
     ],
   },
 ]
