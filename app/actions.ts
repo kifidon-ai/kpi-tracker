@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar } from '@/db/schema'
+import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar, targets } from '@/db/schema'
 import { eq, and, gte, lte, desc, sql, asc, lt, ne, or } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {

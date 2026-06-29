@@ -36,7 +36,7 @@ export function ActivityPipelineCard({ title, metrics, showConversionRates = tru
                   {m.target % 1 === 0 ? m.target : m.target.toFixed(1)}
                 </span>
               </div>
-              <div className="text-[10px] text-ink-3">{m.label}</div>
+              <div className="w-9 h-[3px] rounded-sm opacity-70" style={{ background: m.color }} />
             </div>
             {showConversionRates && i < metrics.length - 1 && (() => {
               const rate = m.value ? (metrics[i + 1].value / m.value * 100) : 0
