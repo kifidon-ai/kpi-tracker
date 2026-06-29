@@ -76,6 +76,18 @@ export async function decrementActivityAction(repId: string, metricKey: string, 
   return { deleted: false, id: null }
 }
 
+export async function updateTargetsAction(
+  period: string,
+  updates: Record<string, number>,
+) {
+  const [target] = await db
+    .update(targets)
+    .set(updates)
+    .where(eq(targets.period, period))
+    .returning()
+  return target
+}
+
 export async function getTrendAction(granularity: 'week' | 'day') {
   const windowDays = granularity === 'week' ? 42 : 30
   const cutoff = new Date()

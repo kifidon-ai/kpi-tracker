@@ -7,7 +7,7 @@ import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
 import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
-import { Ring } from './charts'
+import { ActivityPipelineCard } from './ActivityPipelineCard'
 import { ClosedDealModal } from './ClosedDealModal'
 import { CalendarEventModal } from './CalendarEventModal'
 import { CalendarDecrementPicker } from './CalendarDecrementPicker'
@@ -123,7 +123,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     if (!perPersonTarget) return 0
     const weekly = (perPersonTarget as Record<string, unknown>)[key] as number ?? 0
     const repMult = forTeam ? activeReps.length : 1
-    return Math.round(weekly * repMult * periodMult)
+    return weekly * repMult * periodMult
   }
 
   const effectiveTargets: Record<string, number> = Object.fromEntries(
@@ -342,62 +342,21 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
           </SectionTitle>
         </div>
 
-        <div className="flex items-start pt-1">
-          {KEY_METRICS.map((k, i) => {
+        <ActivityPipelineCard
+          title={isTeam ? 'Team vs goal' : `${rep?.name.split(' ')[0]} vs goal`}
+          metrics={KEY_METRICS.map((k) => {
             const def = ALL_METRICS.find((m) => m.k === k)!
-            const v = (counts[k] as number) ?? 0
-            return (
-              <div key={k} className={`flex items-center ${i < KEY_METRICS.length - 1 ? 'flex-1' : 'flex-none'}`}>
-                <div className="flex flex-col gap-1.5 shrink-0">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: def.color }}>{def.short}</div>
-                  <div className="mono text-[36px] font-extrabold text-ink leading-none">{v}</div>
-                  <div className="text-[10px] text-ink-3">{def.label}</div>
-                </div>
-                {i < KEY_METRICS.length - 1 && (() => {
-                  const nextKey = KEY_METRICS[i + 1]
-                  const nextDef = ALL_METRICS.find((m) => m.k === nextKey)!
-                  const nextV = (counts[nextKey] as number) ?? 0
-                  const rate = v ? (nextV / v * 100) : 0
-                  return (
-                    <div className="flex-1 flex flex-col items-center gap-1 px-1.5 min-w-12">
-                      <div className={`mono text-[11px] font-bold ${rate > 0 ? 'text-ink-2' : 'text-ink-3'}`}>
-                        {rate.toFixed(0)}%
-                      </div>
-                      <div className="flex items-center w-full">
-                        <div className="flex-1 h-px bg-muted" />
-                        <span className="text-muted text-[10px] leading-none">▶</span>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            )
+            return {
+              key: k,
+              label: def.label,
+              short: def.short,
+              value: (counts[k] as number) ?? 0,
+              color: def.color,
+              target: effectiveTargets[k] ?? 1,
+            }
           })}
-        </div>
-
-        <div className="mt-6 pt-5 border-t border-line">
-          <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">
-            {isTeam ? 'Team vs goal' : `${rep?.name.split(' ')[0]} vs goal`}
-          </div>
-          <div className="grid grid-cols-4 gap-3.5">
-            {KEY_METRICS.map((k) => {
-              const def = ALL_METRICS.find((m) => m.k === k)!
-              const v = (counts[k] as number) ?? 0
-              const t = effectiveTargets[k] ?? 1
-              return (
-                <div key={k} className="flex flex-col items-center gap-2.5 py-1">
-                  <Ring value={v} target={t} color={def.color} size={110} stroke={9} label={def.short} />
-                  <div className="text-center">
-                    <div className="mono text-[13px] font-bold text-ink">
-                      {v}<span className="text-ink-3 font-normal"> / {t}</span>
-                    </div>
-                    <div className="text-[10.5px] text-ink-2 mt-0.5">{def.label}</div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+          showConversionRates={true}
+        />
       </Card>
 
       {/* Log Activity + Feed */}

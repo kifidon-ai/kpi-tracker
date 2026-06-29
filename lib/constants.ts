@@ -26,4 +26,4 @@ export const METRIC_GROUPS: MetricGroup[] = [
 ]
 
 export const ALL_METRICS = METRIC_GROUPS.flatMap((g) => g.items)
-export const KEY_METRICS = ['dials', 'dm_conv', 'disc', 'closed']
+export const KEY_METRICS = ['dials', 'dm_conv', 'disc', 'demo', 'closed']

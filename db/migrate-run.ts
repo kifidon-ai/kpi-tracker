@@ -86,15 +86,15 @@ async function run() {
   // 007 — upsert per_person weekly target row
   await db.execute(sql`
     INSERT INTO targets (id, period, dials, conv, vm, disc, demo, onb, closed)
-    VALUES (gen_random_uuid(), 'per_person', 250, 50, 0, 20, 15, 0, 4)
+    VALUES (gen_random_uuid(), 'per_person', 250, 50, 0, 20, 7, 0, 3)
     ON CONFLICT (period) DO UPDATE SET
       dials  = 250,
       conv   = 50,
       vm     = 0,
       disc   = 20,
-      demo   = 15,
+      demo   = 7,
       onb    = 0,
-      closed = 4
+      closed = 3
   `)
 
   // 008 — tasks table for kanban task tracker

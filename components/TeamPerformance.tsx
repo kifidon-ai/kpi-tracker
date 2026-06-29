@@ -5,6 +5,7 @@ import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 import { fmtMoney, fmtNum, pct } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
 import { LineChart, Speedometer, ArrGrowthChart } from './charts'
+import { ActivityPipelineCard } from './ActivityPipelineCard'
 import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getShowRatesAction, getAttendedConversionsAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
@@ -114,27 +115,26 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   }
 
   const bounds     = useMemo(() => getPeriodBounds(range, offset),     [range, offset])
-  const prevBounds = useMemo(() => getPeriodBounds(range, offset + 1), [range, offset])
+  const prevBounds = useMemo(() => range === 'all' ? null : getPeriodBounds(range, offset + 1), [range, offset])
 
   // Fetch aggregated counts from server when period changes
   useEffect(() => {
+    let startISO: string
+    let endISO: string
+
     if (range === 'all') {
-      // For "all time" aggregate the full feed client-side (no date bounds needed)
-      const t: Record<string, number> = {}
-      const rt: Record<string, Record<string, number>> = {}
-      for (const e of feed) {
-        t[e.metric_key] = (t[e.metric_key] ?? 0) + e.delta
-        if (!rt[e.rep_id]) rt[e.rep_id] = {}
-        rt[e.rep_id][e.metric_key] = (rt[e.rep_id][e.metric_key] ?? 0) + e.delta
-      }
-      setTotals(t)
-      setRepTotals(rt)
-      setPrevTotals({})
-      return
+      // For "all time", find the earliest client date and use the server aggregation
+      const sorted = [...clients].filter((c) => c.since_date).sort((a, b) => (a.since_date as string).localeCompare(b.since_date as string))
+      startISO = sorted[0]?.since_date ?? toISO(new Date(2000, 0, 1))
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      endISO = toISO(today)
+    } else {
+      if (!bounds) return
+      startISO = toISO(bounds.start)
+      endISO   = toISO(bounds.end)
     }
-    if (!bounds) return
-    const startISO = toISO(bounds.start)
-    const endISO   = toISO(bounds.end)
+
     getActivityCountsAction(startISO, endISO).then((res) => {
       const merged: Record<string, number> = {}
       Object.values(res).forEach((m) => {
@@ -143,7 +143,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       setTotals(merged)
       setRepTotals(res)
     })
-    if (prevBounds) {
+
+    if (range === 'all' || !prevBounds) {
+      setPrevTotals({})
+    } else {
       const ps = toISO(prevBounds.start)
       const pe = toISO(prevBounds.end)
       getActivityCountsAction(ps, pe).then((res) => {
@@ -153,10 +156,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         })
         setPrevTotals(merged)
       })
-    } else {
-      setPrevTotals({})
     }
-  }, [range, offset, bounds, prevBounds, feed])
+  }, [range, offset, bounds, prevBounds, clients])
 
   const tgt = useMemo(() => {
     const period = range === 'day' ? 'daily' : range === 'week' ? 'weekly' : range === 'month' ? 'monthly' : null
@@ -167,13 +168,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     () => clients.filter((c) => c.since_date && inBoundsDate(c.since_date, bounds)),
     [clients, bounds],
   )
-  const prevClients = useMemo(
-    () => clients.filter((c) => c.since_date && inBoundsDate(c.since_date, prevBounds)),
-    [clients, prevBounds],
-  )
 
-  const closedCount     = filteredClients.length
-  const prevClosedCount = prevClients.length
+  const closedCount = filteredClients.length
 
   const allTimeRepTotals = useMemo(() => {
     const rt: Record<string, Record<string, number>> = {}
@@ -186,10 +182,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
   const periodClientCount = useMemo(() => {
     if (!bounds) return clients.filter((c) => c.since_date).length
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const endDate = bounds.end > today ? today : bounds.end
-    const endStr  = toISO(endDate)
+    const endStr = toISO(bounds.end)
     return clients.filter((c) => c.since_date && (c.since_date as string) <= endStr).length
   }, [clients, bounds])
 
@@ -254,7 +247,16 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const trendData = trendGranularity === 'week' ? weeks : days
   const delta = (a: number, b: number) => (b ? ((a - b) / b) * 100 : null)
   const label = periodLabel(range, offset, bounds)
-  const arr = initialMrr * 12
+
+  const periodMrr = useMemo(() => {
+    if (!bounds) return initialMrr
+    const endStr = toISO(bounds.end)
+    return clients
+      .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+      .reduce((sum, c) => sum + c.mrr, 0)
+  }, [clients, bounds, initialMrr])
+
+  const arr = periodMrr * 12
 
   const arrGrowth = useMemo(() => {
     const sorted = [...clients]
@@ -369,14 +371,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const t = totals
   const pt = prevTotals
 
-  const pipelineStages = [
-    { label: 'Dials',     value: t.dials ?? 0, color: '#00D4FF' },
-    { label: 'Conv',      value: t.dm_conv ?? 0, color: '#8B5CF6' },
-    { label: 'Discovery', value: t.disc  ?? 0, color: '#FFB800' },
-    { label: 'Demo',      value: t.demo  ?? 0, color: '#FF3D9A' },
-    { label: 'Closed',    value: closedCount,   color: '#00E5A0' },
-  ]
-
   void pct // imported but used inline below
 
   function toggleClientSort(key: ClientSortKey) {
@@ -417,7 +411,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     <div className="flex flex-col gap-[18px]">
 
       {/* Header */}
-      <div className="flex justify-between items-center px-1 pt-1">
+      <div className="flex justify-between items-center px-1 pt-1 pb-3" style={{ position: 'sticky', top: '120px', zIndex: 9, background: 'var(--bg-1)' }}>
         <div>
           <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">Historical overview</div>
           <div className="text-lg font-bold mt-1">Team performance · {label.toLowerCase()}</div>
@@ -456,7 +450,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             <Card><KPI label="Conversations" value={t.dm_conv ?? 0} target={tgt?.dm_conv} color="#8B5CF6" formatter={fmtNum} delta={delta(t.dm_conv ?? 0, pt.dm_conv ?? 0)} /></Card>
             <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
             <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
-            <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
+            <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={null} /></Card>
             <Card>
               <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FFB800] mb-1">Disc show rate</div>
               <div className="mono text-[28px] font-extrabold text-ink leading-none">
@@ -474,71 +468,55 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           {/* Conversion pipeline */}
           <Card className="h-full">
             <SectionTitle>Conversion pipeline · {label.toLowerCase()}</SectionTitle>
-            <div className="flex items-center pt-2">
-              {pipelineStages.map((s, i) => (
-                <div key={s.label} className={`flex items-center ${i < pipelineStages.length - 1 ? 'flex-1' : 'flex-none'}`}>
-                  <div className="flex flex-col items-center gap-1.5 shrink-0">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.8px]" style={{ color: s.color }}>{s.label}</div>
-                    <div className="mono text-[36px] font-extrabold text-ink leading-none">{s.value}</div>
-                    <div className="w-9 h-[3px] rounded-sm opacity-70" style={{ background: s.color }} />
-                  </div>
-                  {i < pipelineStages.length - 1 && (() => {
-                    const rate = s.value ? (pipelineStages[i + 1].value / s.value * 100) : 0
-                    return (
-                      <div className="flex-1 flex flex-col items-center gap-1 px-1.5 min-w-12">
-                        <div className={`mono text-[11px] font-bold ${rate > 0 ? 'text-ink-2' : 'text-[#3A4460]'}`}>
-                          {rate.toFixed(0)}%
-                        </div>
-                        <div className="flex items-center w-full">
-                          <div className="flex-1 h-px bg-[#2A3350]" />
-                          <span className="text-[#2A3350] text-[10px] leading-none">▶</span>
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              ))}
-            </div>
             {(() => {
               const mult = range === 'month' ? 4 : range === 'day' ? 1 / 5 : 1
-              const goalRings = [
-                { label: 'Dials',   value: t.dials ?? 0, goal: 200 * mult, color: '#00D4FF' },
-                { label: 'Convs',   value: t.dm_conv ?? 0, goal: 100 * mult, color: '#8B5CF6' },
-                { label: 'Disc',    value: t.disc  ?? 0, goal:  10 * mult, color: '#FFB800' },
-                { label: 'Demos',   value: t.demo  ?? 0, goal:   5 * mult, color: '#FF3D9A' },
+              const repsCount = reps.length || 1
+              const weeklyTargets = tgt || { dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 }
+
+              const metrics = [
+                {
+                  key: 'dials',
+                  label: 'Dials',
+                  short: 'Dials',
+                  value: t.dials ?? 0,
+                  color: '#00D4FF',
+                  target: (weeklyTargets.dials ?? 250) * mult * repsCount,
+                },
+                {
+                  key: 'conv',
+                  label: 'Conv',
+                  short: 'Conv',
+                  value: t.dm_conv ?? 0,
+                  color: '#8B5CF6',
+                  target: (weeklyTargets.dm_conv ?? 50) * mult * repsCount,
+                },
+                {
+                  key: 'disc',
+                  label: 'Discovery',
+                  short: 'Disc',
+                  value: t.disc ?? 0,
+                  color: '#FFB800',
+                  target: (weeklyTargets.disc ?? 20) * mult * repsCount,
+                },
+                {
+                  key: 'demo',
+                  label: 'Demo',
+                  short: 'Demos',
+                  value: t.demo ?? 0,
+                  color: '#FF3D9A',
+                  target: (weeklyTargets.demo ?? 7) * mult * repsCount,
+                },
+                {
+                  key: 'closed',
+                  label: 'Closed',
+                  short: 'Closed',
+                  value: closedCount,
+                  color: '#00E5A0',
+                  target: (weeklyTargets.closed ?? 3) * mult * repsCount,
+                },
               ]
-              const r = 22
-              const circ = 2 * Math.PI * r
-              return (
-                <div className="flex items-center justify-around pt-3.5 mt-3.5 border-t border-line">
-                  {goalRings.map((g) => {
-                    const progress = Math.min(g.value / g.goal * 100, 100)
-                    const dashOffset = circ * (1 - progress / 100)
-                    return (
-                      <div key={g.label} className="flex flex-col items-center gap-1.5">
-                        <div className="relative w-[52px] h-[52px]">
-                          <svg width="52" height="52" viewBox="0 0 52 52" className="-rotate-90" style={{ display: 'block' }}>
-                            <circle cx="26" cy="26" r={r} fill="none" stroke="var(--line)" strokeWidth="4" />
-                            <circle
-                              cx="26" cy="26" r={r} fill="none"
-                              stroke={g.color} strokeWidth="4"
-                              strokeLinecap="round"
-                              strokeDasharray={circ}
-                              strokeDashoffset={dashOffset}
-                              style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                            />
-                          </svg>
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="mono text-[10px] font-bold text-ink leading-none">{Math.round(progress)}%</span>
-                          </div>
-                        </div>
-                        <div className="text-[9px] uppercase tracking-[0.6px] font-bold" style={{ color: g.color }}>{g.label}</div>
-                        <div className="mono text-[9px] text-ink-2 leading-none">{g.value}<span className="text-ink-3">/{g.goal}</span></div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
+
+              return <ActivityPipelineCard title="Conversion goals" metrics={metrics} showConversionRates={true} />
             })()}
           </Card>
         </div>
@@ -703,6 +681,203 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                           ))}
                         </div>
                       )}
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* MRR Growth + Per Rep */}
+      <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
+        {/* MRR Growth Rate Chart */}
+        {(() => {
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const dow = today.getDay()
+          const daysFromMonday = dow === 0 ? 6 : dow - 1
+          const thisMonday = new Date(today)
+          thisMonday.setDate(today.getDate() - daysFromMonday)
+
+          const mrrChanges: Array<{ label: string; change: number }> = []
+          let weekCount = 6
+
+          if (range === 'all' || !bounds) {
+            weekCount = 8
+          } else if (range === 'day') {
+            weekCount = 2
+          } else if (range === 'week') {
+            weekCount = 3
+          } else {
+            weekCount = 5
+          }
+
+          const chartStart = new Date(thisMonday)
+          chartStart.setDate(thisMonday.getDate() - weekCount * 7)
+          const weekBefore = new Date(chartStart)
+          weekBefore.setDate(weekBefore.getDate() - 7)
+          const weekBeforeEndStr = toISO(weekBefore)
+
+          let prevMrr = clients
+            .filter((c) => c.since_date && (c.since_date as string) <= weekBeforeEndStr)
+            .reduce((sum, c) => sum + c.mrr, 0)
+
+          for (let w = weekCount; w >= 0; w--) {
+            const start = new Date(thisMonday)
+            start.setDate(thisMonday.getDate() - w * 7)
+            const end = w === 0 ? new Date(today) : new Date(start)
+            if (w > 0) end.setDate(start.getDate() + 6)
+            const endStr = toISO(end)
+
+            const weekMrr = clients
+              .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+              .reduce((sum, c) => sum + c.mrr, 0)
+
+            const change = weekMrr - prevMrr
+
+            mrrChanges.push({
+              label: w === 0 ? 'Now' : (start.getMonth() + 1) + '/' + start.getDate(),
+              change: change,
+            })
+
+            prevMrr = weekMrr
+          }
+
+          const minChange = Math.min(...mrrChanges.map((d) => d.change))
+          const maxChange = Math.max(...mrrChanges.map((d) => d.change))
+          const range_ = maxChange - minChange || 1
+          const avgChange = mrrChanges.reduce((sum, d) => sum + d.change, 0) / mrrChanges.length
+
+          const svgH = 260
+          const svgW = 1000
+          const padding = { top: 20, right: 20, bottom: 40, left: 60 }
+          const plotW = svgW - padding.left - padding.right
+          const plotH = svgH - padding.top - padding.bottom
+
+          const points = mrrChanges.map((d, i) => {
+            const x = padding.left + (i / Math.max(mrrChanges.length - 1, 1)) * plotW
+            const y = padding.top + ((maxChange - d.change) / range_) * plotH
+            return { x, y, change: d.change, label: d.label }
+          })
+
+          const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+          const isPositive = avgChange >= 0
+
+          return (
+            <Card>
+              <SectionTitle>MRR growth rate · {label.toLowerCase()}</SectionTitle>
+              <div className="mt-4" style={{ width: '100%', height: svgH }}>
+                <svg width="100%" height="100%" viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+                  {/* Grid lines */}
+                  {Array.from({ length: 5 }).map((_, i) => {
+                    const y = padding.top + (i / 4) * plotH
+                    const value = Math.round(maxChange - (i / 4) * range_)
+                    return (
+                      <g key={i}>
+                        <line x1={padding.left} y1={y} x2={svgW - padding.right} y2={y} stroke="var(--line)" strokeWidth="1" opacity="0.3" />
+                        <text x={padding.left - 10} y={y} textAnchor="end" dominantBaseline="middle" className="mono text-[10px]" fill="var(--ink-3)">
+                          {fmtMoney(value)}
+                        </text>
+                      </g>
+                    )
+                  })}
+                  {/* X axis labels */}
+                  {points.map((p, i) => (
+                    <text key={i} x={p.x} y={svgH - 10} textAnchor="middle" className="mono text-[9px]" fill="var(--ink-3)">
+                      {p.label}
+                    </text>
+                  ))}
+                  {/* Average line */}
+                  {(() => {
+                    const avgY = padding.top + ((maxChange - avgChange) / range_) * plotH
+                    return (
+                      <line x1={padding.left} y1={avgY} x2={svgW - padding.right} y2={avgY} stroke="var(--ink-3)" strokeWidth="1.5" strokeDasharray="5,4" opacity="0.5" />
+                    )
+                  })()}
+                  {/* Line */}
+                  <path d={pathD} stroke={isPositive ? '#00E5A0' : '#FF5468'} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  {/* Points */}
+                  {points.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r="4" fill={p.change >= 0 ? '#00E5A0' : '#FF5468'} />
+                  ))}
+                </svg>
+              </div>
+              <div className="mt-4 pt-3 border-t border-line">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-ink-2">
+                    <span>Avg weekly growth: <span className="mono font-semibold text-ink">{fmtMoney(Math.round(avgChange))}</span></span>
+                  </div>
+                  {(() => {
+                    if (mrrChanges.length < 2) return null
+                    const last2 = mrrChanges.slice(-2)
+                    const prev = last2[0].change
+                    const curr = last2[1].change
+                    const pctChange = prev > 0 ? ((curr - prev) / prev) * 100 : 0
+                    const isPositive = pctChange >= 0
+                    return (
+                      <div className="text-[11px] text-ink-2">
+                        <span>WoW % change: <span className="mono font-semibold" style={{ color: isPositive ? '#00E5A0' : '#FF5468' }}>
+                          {isPositive ? '+' : ''}{pctChange.toFixed(1)}%
+                        </span></span>
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            </Card>
+          )
+        })()}
+
+        {/* MRR Per Rep */}
+        <Card className="flex flex-col">
+          <SectionTitle>MRR per rep</SectionTitle>
+          <div className="overflow-y-auto flex-1" style={{ marginTop: 8 }}>
+            <div className="flex flex-col gap-2">
+              {(() => {
+                const mrrByRep = reps
+                  .filter((r) => r.is_active)
+                  .map((rep) => ({
+                    rep,
+                    mrr: clients
+                      .filter((c) => c.owner_id === rep.id)
+                      .reduce((sum, c) => sum + c.mrr, 0),
+                  }))
+                  .filter((x) => x.mrr > 0)
+                  .sort((a, b) => b.mrr - a.mrr)
+
+                if (mrrByRep.length === 0) {
+                  return <div className="py-6 px-3 text-center text-ink-3 text-[12px]">No MRR assigned yet</div>
+                }
+
+                const totalMrr = mrrByRep.reduce((sum, x) => sum + x.mrr, 0)
+
+                return mrrByRep.map(({ rep, mrr }) => {
+                  const pct = (mrr / totalMrr) * 100
+                  return (
+                    <div key={rep.id} className="p-2.5 rounded-lg" style={{ background: 'var(--bg-2)' }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0"
+                            style={{ background: rep.color + '28', color: rep.color }}
+                          >
+                            {rep.initials}
+                          </div>
+                          <span className="text-[11px] font-semibold text-ink">{rep.name.split(' ')[0]}</span>
+                        </div>
+                        <span className="mono text-[12px] font-bold text-ink">{fmtMoney(mrr)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-line rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${pct}%`, background: rep.color }}
+                          />
+                        </div>
+                        <span className="mono text-[10px] text-ink-3 w-9 text-right">{pct.toFixed(0)}%</span>
+                      </div>
                     </div>
                   )
                 })
