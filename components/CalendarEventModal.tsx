@@ -7,6 +7,7 @@ interface CalendarEventModalProps {
   rep: Rep
   activityType: 'disc' | 'demo'
   companies: string[]
+  defaultDate?: string
   onSave: (data: { companyName: string; scheduledDate: string; intent: CalendarIntent }) => void
   onCancel: () => void
 }
@@ -17,10 +18,10 @@ const INTENT_OPTIONS: { value: CalendarIntent; label: string; color: string }[] 
   { value: 'low',    label: 'Low',    color: '#FF5468' },
 ]
 
-export function CalendarEventModal({ rep, activityType, companies, onSave, onCancel }: CalendarEventModalProps) {
+export function CalendarEventModal({ rep, activityType, companies, defaultDate, onSave, onCancel }: CalendarEventModalProps) {
   const today = new Date().toISOString().slice(0, 10)
   const [companyName, setCompanyName]     = useState('')
-  const [scheduledDate, setScheduledDate] = useState(today)
+  const [scheduledDate, setScheduledDate] = useState(defaultDate ?? today)
   const [intent, setIntent]               = useState<CalendarIntent>('medium')
   const [showDropdown, setShowDropdown]   = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)

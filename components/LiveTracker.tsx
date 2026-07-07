@@ -35,7 +35,7 @@ interface LiveTrackerProps {
 }
 
 
-export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = false, onDealClosed }: LiveTrackerProps) {
+export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }: LiveTrackerProps) {
   const [activeRep, setActiveRep] = useState<string>(defaultRepId ?? 'team')
 
   useEffect(() => {
@@ -54,12 +54,10 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
 
   const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
   const isHistorical = offset > 0
-  const canLogHistorical = isSuperUser && isHistorical
   const label = getPeriodLabel(range, offset, bounds)
 
   const startISO = bounds.start.toISOString().slice(0, 10)
   const endISO   = bounds.end.toISOString().slice(0, 10)
-  const todayISO = new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
     getActivityCountsAction(startISO, endISO).then(setCountsByRep)
@@ -135,10 +133,11 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
 
   const logActivity = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
-    if (isHistorical && !canLogHistorical) return
     const def = ALL_METRICS.find((m) => m.k === metricKey)
     if (!def) return
-    const loggedAt = canLogHistorical ? `${endISO}T12:00:00.000Z` : undefined
+    // When viewing a past period, backdate the entry to that period so it
+    // counts toward the historical date (e.g. adding a demo to "yesterday").
+    const loggedAt = isHistorical ? `${endISO}T12:00:00.000Z` : undefined
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
@@ -151,7 +150,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: Math.max(0, ((prev[activeRep] ?? {})[metricKey] ?? 0) - 1) },
       }))
     }
-  }, [isTeam, rep, activeRep, isHistorical, canLogHistorical, endISO])
+  }, [isTeam, rep, activeRep, isHistorical, endISO])
 
   const decrement = useCallback(async (metricKey: string) => {
     if (isTeam || !rep) return
@@ -229,7 +228,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
     }))
 
     try {
-      const { event } = await logCalendarEventAction({
+      await logCalendarEventAction({
         repId:         activeRep,
         companyName:   data.companyName,
         activityType:  type,
@@ -237,9 +236,10 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
         intent:        data.intent,
       })
 
-      // Add to today's events if scheduled for today
-      if (data.scheduledDate === todayISO && event) {
-        setTodayEvents((prev) => [...prev, event])
+      // Refresh the events for the currently viewed period so the day calendar
+      // stays in sync whether the booking was for today or a historical date.
+      if (data.scheduledDate >= startISO && data.scheduledDate <= endISO) {
+        getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then(setTodayEvents)
       }
 
       // Refresh companies list
@@ -250,7 +250,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
         [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, ((prev[activeRep] ?? {})[type] ?? 0) - 1) },
       }))
     }
-  }, [rep, activeRep, calendarModal, todayISO])
+  }, [rep, activeRep, calendarModal, startISO, endISO])
 
   function handleInc(metricKey: string) {
     if (metricKey === 'closed') { setShowClosedModal(true); return }
@@ -372,11 +372,11 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
             {!isTeam && rep && <Avatar rep={rep} size={32} />}
           </div>
 
-          {isHistorical && (
+          {isHistorical && !isTeam && (
             <div className="mx-4 mt-3.5 px-3.5 py-2.5 rounded-lg flex items-center gap-2 text-[11px] text-ink-2"
               style={{ background: '#FFB80011', border: '1px solid #FFB80044' }}>
               <Icon name="log" size={13} color="#FFB800" />
-              <span>Viewing {label.toLowerCase()} — logging is disabled for past periods.</span>
+              <span>Editing {label.toLowerCase()} — changes are saved to that period.</span>
             </div>
           )}
           {!isHistorical && isTeam && (
@@ -402,7 +402,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
                       def={def}
                       value={v}
                       target={t}
-                      disabled={isTeam || isHistorical}
+                      disabled={isTeam}
                       onInc={() => handleInc(def.k)}
                       onDec={() => decrement(def.k)}
                     />
@@ -475,6 +475,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, isSuperUser = f
           rep={rep}
           activityType={calendarModal}
           companies={calendarCompanies}
+          defaultDate={isHistorical ? endISO : undefined}
           onSave={logCalendarEvent}
           onCancel={() => setCalendarModal(null)}
         />

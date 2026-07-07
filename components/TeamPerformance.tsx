@@ -836,8 +836,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           <div className="overflow-y-auto flex-1" style={{ marginTop: 8 }}>
             <div className="flex flex-col gap-2">
               {(() => {
-                const mrrByRep = reps
-                  .filter((r) => r.is_active)
+                // Use allReps (not just active) so MRR owned by inactive reps
+                // is still attributed and counted in the per-rep breakdown.
+                const mrrByRep = allReps
                   .map((rep) => ({
                     rep,
                     mrr: clients
