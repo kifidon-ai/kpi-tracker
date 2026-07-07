@@ -63,6 +63,7 @@ const SECTIONS: Section[] = [
       { id: 'pm-4', label: 'Colour Code the following meetings based on assignment', mode: 'multi' },
       { id: 'pm-5', label: 'Transcribe Cold calls and put them in attio Notes', mode: 'multi' },
       { id: 'pm-6', label: 'Confirm Discovery/Demo today have notes', mode: 'multi' },
+      { id: 'pm-7', label: 'Make sure discovery and demos analytics are tracked in KPI', mode: 'multi' },
     ],
   },
 ]
