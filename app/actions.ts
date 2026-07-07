@@ -340,6 +340,19 @@ export async function getCalendarEventsForDateRangeAction(repId: string, startIS
   } catch { return [] }
 }
 
+export async function getCalendarEventsForDateRangeAllRepsAction(startISO: string, endISO: string) {
+  try {
+    return await db
+      .select()
+      .from(calendar)
+      .where(and(
+        gte(calendar.scheduled_date, startISO),
+        lte(calendar.scheduled_date, endISO),
+      ))
+      .orderBy(desc(calendar.scheduled_date))
+  } catch { return [] }
+}
+
 export async function getCalendarCompaniesAction() {
   try {
     const rows = await db
@@ -378,8 +391,16 @@ export async function rescheduleCalendarEventAction(
   return { event }
 }
 
-export async function getShowRatesAction() {
+export async function getShowRatesAction(startISO?: string, endISO?: string) {
   try {
+    // Default (no bounds): all calendar entries scheduled before today.
+    // With bounds: entries scheduled within the given period.
+    const dateFilter = startISO && endISO
+      ? and(
+          gte(calendar.scheduled_date, startISO),
+          lte(calendar.scheduled_date, endISO),
+        )
+      : lt(calendar.scheduled_date, sql`CURRENT_DATE`)
     const rows = await db
       .select({
         rep_id:        calendar.rep_id,
@@ -388,7 +409,7 @@ export async function getShowRatesAction() {
         attended:      sql<number>`cast(sum(case when ${calendar.status} = 'attended' then 1 else 0 end) as int)`,
       })
       .from(calendar)
-      .where(lt(calendar.scheduled_date, sql`CURRENT_DATE`))
+      .where(dateFilter)
       .groupBy(calendar.rep_id, calendar.activity_type)
     return rows
   } catch { return [] }

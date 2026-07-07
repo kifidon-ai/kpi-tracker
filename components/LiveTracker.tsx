@@ -22,6 +22,7 @@ import {
   getCalendarCompaniesAction,
   getCalendarEventsForPeriodAction,
   getCalendarEventsForDateRangeAction,
+  getCalendarEventsForDateRangeAllRepsAction,
   deleteCalendarEventAction,
 } from '@/app/actions'
 
@@ -69,7 +70,9 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
   }, [])
 
   useEffect(() => {
-    if (activeRep && activeRep !== 'team') {
+    if (activeRep === 'team') {
+      getCalendarEventsForDateRangeAllRepsAction(startISO, endISO).then(setTodayEvents)
+    } else if (activeRep) {
       getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then(setTodayEvents)
     } else {
       setTodayEvents([])
@@ -447,19 +450,18 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         </Card>
       </div>
 
-      {/* Day calendar */}
-      {!isTeam && (
-        <DayCalendar
-          events={todayEvents}
-          reps={reps}
-          repId={activeRep}
-          companies={calendarCompanies}
-          startDate={startISO}
-          endDate={endISO}
-          onEventsChange={setTodayEvents}
-          onCompaniesUpdate={setCalendarCompanies}
-        />
-      )}
+      {/* Day calendar — shows the selected rep's meetings, or the whole team's */}
+      <DayCalendar
+        events={todayEvents}
+        reps={reps}
+        repId={activeRep}
+        companies={calendarCompanies}
+        startDate={startISO}
+        endDate={endISO}
+        allowAdd={!isTeam}
+        onEventsChange={setTodayEvents}
+        onCompaniesUpdate={setCalendarCompanies}
+      />
 
       {showClosedModal && rep && (
         <ClosedDealModal

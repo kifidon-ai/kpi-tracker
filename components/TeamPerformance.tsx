@@ -100,6 +100,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const [trendRows, setTrendRows]   = useState<{ date: string; metric_key: string; total: number }[]>([])
   const [discByHour, setDiscByHour] = useState<{ hour: number; total: number }[]>([])
   const [showRates, setShowRates]   = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
+  const [periodShowRates, setPeriodShowRates] = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [attendedConversions, setAttendedConversions] = useState<Record<string, {
     discBooked: number
     discAttended: number
@@ -143,6 +144,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       setTotals(merged)
       setRepTotals(res)
     })
+
+    // Period-scoped attendance (from the calendar table) for the conversion pipeline.
+    getShowRatesAction(startISO, endISO).then(setPeriodShowRates)
 
     if (range === 'all' || !prevBounds) {
       setPrevTotals({})
@@ -473,6 +477,12 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               const repsCount = reps.length || 1
               const weeklyTargets = tgt || { dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 }
 
+              // Discovery here reflects ATTENDED disc calls (from the calendar),
+              // not booked disc, for the selected period.
+              const teamAttendedDisc = periodShowRates
+                .filter((r) => r.activity_type === 'disc')
+                .reduce((sum, r) => sum + r.attended, 0)
+
               const metrics = [
                 {
                   key: 'dials',
@@ -492,9 +502,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 },
                 {
                   key: 'disc',
-                  label: 'Discovery',
-                  short: 'Disc',
-                  value: t.disc ?? 0,
+                  label: 'Disc attended',
+                  short: 'Disc ✓',
+                  value: teamAttendedDisc,
                   color: '#FFB800',
                   target: (weeklyTargets.disc ?? 20) * mult * repsCount,
                 },

@@ -22,6 +22,7 @@ interface DayCalendarProps {
   companies: string[]
   startDate?: string
   endDate?: string
+  allowAdd?: boolean
   onEventsChange: (events: CalendarEvent[]) => void
   onCompaniesUpdate: (companies: string[]) => void
 }
@@ -39,9 +40,15 @@ const INTENT_OPTIONS: { value: CalendarIntent; label: string }[] = [
 const TYPE_LABEL: Record<string, string> = { disc: 'Disc', demo: 'Demo' }
 const TYPE_COLOR: Record<string, string>  = { disc: '#FFD700', demo: '#00E5A0' }
 
+function formatEventDate(dateISO: string): string {
+  const [y, m, d] = dateISO.split('-')
+  const date = new Date(Number(y), Number(m) - 1, Number(d))
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 type CardMode = 'view' | 'reschedule' | 'edit'
 
-export function DayCalendar({ events, reps, repId, companies, startDate, endDate, onEventsChange, onCompaniesUpdate }: DayCalendarProps) {
+export function DayCalendar({ events, reps, repId, companies, startDate, endDate, allowAdd = true, onEventsChange, onCompaniesUpdate }: DayCalendarProps) {
   const [cardMode, setCardMode]           = useState<Record<string, CardMode>>({})
   const [rescheduleDate, setRescheduleDate] = useState<Record<string, string>>({})
   const [editState, setEditState]         = useState<Record<string, { intent: string; date: string }>>({})
@@ -49,7 +56,7 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
   const [loading, setLoading]             = useState<string | null>(null)
   const [showAddModal, setShowAddModal]   = useState(false)
   const [filterType, setFilterType]       = useState<'all' | 'disc' | 'demo'>('all')
-  const [sortBy, setSortBy]               = useState<'name' | 'type'>('name')
+  const [sortBy, setSortBy]               = useState<'name' | 'type' | 'date'>('date')
   const menuRef = useRef<HTMLDivElement>(null)
   const todayISO = new Date().toISOString().slice(0, 10)
 
@@ -78,12 +85,15 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
     .sort((a, b) => {
       if (sortBy === 'name') {
         return a.company_name.localeCompare(b.company_name)
-      } else {
-        const typeOrder = { disc: 0, demo: 1 }
-        const aTypeOrder = typeOrder[a.activity_type as keyof typeof typeOrder] ?? 2
-        const bTypeOrder = typeOrder[b.activity_type as keyof typeof typeOrder] ?? 2
-        return aTypeOrder - bTypeOrder || a.company_name.localeCompare(b.company_name)
       }
+      if (sortBy === 'date') {
+        return a.scheduled_date.localeCompare(b.scheduled_date)
+          || a.company_name.localeCompare(b.company_name)
+      }
+      const typeOrder = { disc: 0, demo: 1 }
+      const aTypeOrder = typeOrder[a.activity_type as keyof typeof typeOrder] ?? 2
+      const bTypeOrder = typeOrder[b.activity_type as keyof typeof typeOrder] ?? 2
+      return aTypeOrder - bTypeOrder || a.company_name.localeCompare(b.company_name)
     })
 
   // Close menu when clicking outside
@@ -181,14 +191,16 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
       <Card>
         <div className="flex items-center justify-between mb-1">
           <SectionTitle>{sectionTitle} <span className="text-[11px] font-normal text-ink-3 ml-1">{today}</span></SectionTitle>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-ink-2 hover:text-ink transition-colors"
-            style={{ background: 'var(--bg-2)', border: '1px solid var(--line)' }}
-          >
-            <Icon name="calendar" size={11} color="var(--ink-2)" />
-            Add meeting
-          </button>
+          {allowAdd && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-ink-2 hover:text-ink transition-colors"
+              style={{ background: 'var(--bg-2)', border: '1px solid var(--line)' }}
+            >
+              <Icon name="calendar" size={11} color="var(--ink-2)" />
+              Add meeting
+            </button>
+          )}
         </div>
         <div className="mt-4 py-8 text-center text-ink-3 text-[12px]">No meetings scheduled for today</div>
         {showAddModal && (
@@ -207,14 +219,16 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
         </SectionTitle>
         <div className="flex items-center gap-3">
           <div className="text-[11px] text-ink-3">{filteredAndSortedEvents.length} meeting{filteredAndSortedEvents.length !== 1 ? 's' : ''}</div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-ink-2 hover:text-ink transition-colors"
-            style={{ background: 'var(--bg-2)', border: '1px solid var(--line)' }}
-          >
-            <Icon name="calendar" size={11} color="var(--ink-2)" />
-            Add meeting
-          </button>
+          {allowAdd && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-ink-2 hover:text-ink transition-colors"
+              style={{ background: 'var(--bg-2)', border: '1px solid var(--line)' }}
+            >
+              <Icon name="calendar" size={11} color="var(--ink-2)" />
+              Add meeting
+            </button>
+          )}
         </div>
       </div>
 
@@ -245,10 +259,10 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-[10px] text-ink-3 uppercase tracking-[0.6px] font-semibold">Sort:</span>
           <div className="flex gap-1 bg-bg-2 p-1 rounded-lg">
-            {['name', 'type'].map((sort) => (
+            {(['date', 'name', 'type'] as const).map((sort) => (
               <button
                 key={sort}
-                onClick={() => setSortBy(sort as 'name' | 'type')}
+                onClick={() => setSortBy(sort)}
                 className="px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all"
                 style={{
                   background: sortBy === sort ? 'var(--bg-1)' : 'transparent',
@@ -256,7 +270,7 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
                   border: sortBy === sort ? '1px solid var(--line)' : '1px solid transparent',
                 }}
               >
-                {sort === 'name' ? 'Name' : 'Type'}
+                {sort === 'date' ? 'Date' : sort === 'name' ? 'Name' : 'Type'}
               </button>
             ))}
           </div>
@@ -291,7 +305,11 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
                   {TYPE_LABEL[event.activity_type] ?? event.activity_type}
                 </div>
 
-                <div className="text-[13px] font-semibold text-ink truncate flex-1">{event.company_name}</div>
+                <div className="text-[13px] font-semibold text-ink truncate flex-1 min-w-0">{event.company_name}</div>
+
+                <div className="mono text-[10px] text-ink-3 shrink-0 whitespace-nowrap">
+                  {formatEventDate(event.scheduled_date)}
+                </div>
 
                 <div
                   className="px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 uppercase"
