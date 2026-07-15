@@ -1,12 +1,21 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
-import { fmtMoney, fmtNum, pct } from '@/lib/helpers'
+import {
+  fmtMoney,
+  fmtNum,
+  pct,
+  isClientActiveAsOf,
+  isClientActiveDuringPeriod,
+  fullMonthsActive,
+  clientRevenueContribution,
+} from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
 import { LineChart, Speedometer, ArrGrowthChart } from './charts'
 import { ActivityPipelineCard } from './ActivityPipelineCard'
-import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getShowRatesAction, getAttendedConversionsAction } from '@/app/actions'
+import { EditClientModal } from './EditClientModal'
+import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getShowRatesAction, getAttendedConversionsAction, updateClientCancelDateAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -15,6 +24,7 @@ interface TeamPerformanceProps {
   targets: Target[]
   initialMrr: number
   activeClientCount: number
+  onClientUpdated?: (client: Client) => void
 }
 
 type Range = 'day' | 'week' | 'month' | 'all'
@@ -75,18 +85,33 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
   return b.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
-export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount }: TeamPerformanceProps) {
+export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount, onClientUpdated }: TeamPerformanceProps) {
   const [mounted, setMounted] = useState(false)
   const [showAllWeeksModal, setShowAllWeeksModal] = useState(false)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const [hoveredWeek, setHoveredWeek] = useState<string | null>(null)
+  const [editingClient, setEditingClient] = useState<Client | null>(null)
+  const [savingClient, setSavingClient] = useState(false)
+  const [openClientMenu, setOpenClientMenu] = useState<string | null>(null)
+  const clientMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
+  useEffect(() => {
+    if (!openClientMenu) return
+    function handleClickOutside(e: MouseEvent) {
+      if (clientMenuRef.current && !clientMenuRef.current.contains(e.target as Node)) {
+        setOpenClientMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [openClientMenu])
+
   const reps = allReps.filter((r) => r.is_active)
-  type ClientSortKey = 'name' | 'since_date' | 'mrr' | 'arr' | 'rep'
+  type ClientSortKey = 'name' | 'since_date' | 'cancel_date' | 'mrr' | 'arr' | 'rep'
 
   const [range, setRange] = useState<Range>('week')
   const [offset, setOffset] = useState(0)
@@ -185,9 +210,13 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   }, [feed])
 
   const periodClientCount = useMemo(() => {
-    if (!bounds) return clients.filter((c) => c.since_date).length
+    if (!bounds) {
+      const today = toISO(new Date())
+      return clients.filter((c) => isClientActiveAsOf(c, today)).length
+    }
+    const startStr = toISO(bounds.start)
     const endStr = toISO(bounds.end)
-    return clients.filter((c) => c.since_date && (c.since_date as string) <= endStr).length
+    return clients.filter((c) => isClientActiveDuringPeriod(c, startStr, endStr)).length
   }, [clients, bounds])
 
   useEffect(() => {
@@ -256,7 +285,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     if (!bounds) return initialMrr
     const endStr = toISO(bounds.end)
     return clients
-      .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+      .filter((c) => isClientActiveAsOf(c, endStr))
       .reduce((sum, c) => sum + c.mrr, 0)
   }, [clients, bounds, initialMrr])
 
@@ -304,23 +333,40 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     const windowStartStr = toISO(windowStart)
     const windowEndStr   = toISO(windowEndCapped)
 
-    // Collect unique signup dates within the window; always anchor both ends
-    const eventDates = [...new Set(
-      sorted
+    // Collect unique signup/cancel dates within the window; always anchor both ends
+    const eventDates = [...new Set([
+      ...sorted
         .filter((c) => { const d = c.since_date as string; return d >= windowStartStr && d <= windowEndStr })
         .map((c) => c.since_date as string),
-    )]
+      ...sorted
+        .filter((c) => { const d = c.cancel_date as string | null; return d && d >= windowStartStr && d <= windowEndStr })
+        .map((c) => c.cancel_date as string),
+    ])]
     if (!eventDates.includes(windowStartStr)) eventDates.unshift(windowStartStr)
     if (!eventDates.includes(windowEndStr))   eventDates.push(windowEndStr)
     eventDates.sort()
 
     const actual = eventDates.map((date) => {
       const signedUpOnDate = sorted.filter((c) => (c.since_date as string) === date)
+      const cancelledOnDate = sorted.filter((c) => c.cancel_date === date)
+      const contribution = (c: Client, asOf: string) =>
+        c.mrr * fullMonthsActive(c.since_date as string, asOf, c.cancel_date)
       return {
         date,
-        arr: sorted.filter((c) => (c.since_date as string) <= date).reduce((sum, c) => sum + c.mrr * 12, 0),
-        clientNames: signedUpOnDate.map((c) => c.name),
-        clientArrs: signedUpOnDate.map((c) => ({ name: c.name, arr: c.mrr * 12 })),
+        arr: sorted
+          .filter((c) => isClientActiveAsOf(c, date))
+          .reduce((sum, c) => sum + clientRevenueContribution(c, date), 0),
+        clientNames: [
+          ...signedUpOnDate.map((c) => c.name),
+          ...cancelledOnDate.map((c) => `− ${c.name}`),
+        ],
+        clientArrs: [
+          ...signedUpOnDate.map((c) => ({ name: c.name, arr: contribution(c, date) })),
+          ...cancelledOnDate.map((c) => ({
+            name: `− ${c.name}`,
+            arr: -contribution(c, date),
+          })),
+        ],
       }
     })
 
@@ -330,10 +376,13 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     const growthWindowDays = range === 'day' ? 7 : range === 'week' ? 14 : range === 'month' ? 60 : 56
     const growthWinStart = new Date(windowEndCapped)
     growthWinStart.setDate(growthWinStart.getDate() - growthWindowDays)
-    const recentArr = sorted
-      .filter((c) => { const d = c.since_date as string; return d >= toISO(growthWinStart) && d <= windowEndStr })
-      .reduce((sum, c) => sum + c.mrr * 12, 0)
-    const weeklyGrowth = recentArr / (growthWindowDays / 7)
+    const arrAtStart = sorted
+      .filter((c) => isClientActiveAsOf(c, toISO(growthWinStart)))
+      .reduce((sum, c) => sum + clientRevenueContribution(c, toISO(growthWinStart)), 0)
+    const arrAtEnd = sorted
+      .filter((c) => isClientActiveAsOf(c, windowEndStr))
+      .reduce((sum, c) => sum + clientRevenueContribution(c, windowEndStr), 0)
+    const weeklyGrowth = (arrAtEnd - arrAtStart) / (growthWindowDays / 7)
 
     // Sparse projection points (fewer for shorter views)
     const projSteps = range === 'all' ? 13 : range === 'month' ? 6 : 3
@@ -389,8 +438,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     const dir = clientSort.dir === 'asc' ? 1 : -1
     if (clientSort.key === 'name') return dir * a.name.localeCompare(b.name)
     if (clientSort.key === 'since_date') return dir * ((a.since_date ?? '').localeCompare(b.since_date ?? ''))
+    if (clientSort.key === 'cancel_date') return dir * ((a.cancel_date ?? '').localeCompare(b.cancel_date ?? ''))
     if (clientSort.key === 'mrr') return dir * (a.mrr - b.mrr)
-    if (clientSort.key === 'arr') return dir * (a.mrr * 12 - b.mrr * 12)
+    if (clientSort.key === 'arr') {
+      const today = toISO(new Date())
+      const av = fullMonthsActive(a.since_date as string, today, a.cancel_date) * a.mrr
+      const bv = fullMonthsActive(b.since_date as string, today, b.cancel_date) * b.mrr
+      return dir * (av - bv)
+    }
     if (clientSort.key === 'rep') {
       const ra = reps.find((r) => r.id === a.owner_id)?.name ?? ''
       const rb = reps.find((r) => r.id === b.owner_id)?.name ?? ''
@@ -402,10 +457,23 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const clientCols: { label: string; key: ClientSortKey; left?: boolean }[] = [
     { label: 'Client',    key: 'name',       left: true },
     { label: 'Onboarded', key: 'since_date'  },
+    { label: 'Cancel',    key: 'cancel_date' },
     { label: 'MRR',       key: 'mrr'         },
-    { label: 'ARR',       key: 'arr'         },
+    { label: 'Revenue',   key: 'arr'         },
     { label: 'Rep',       key: 'rep'          },
   ]
+
+  async function handleSaveCancelDate(cancelDate: string | null) {
+    if (!editingClient) return
+    setSavingClient(true)
+    try {
+      const { client } = await updateClientCancelDateAction(editingClient.id, cancelDate)
+      if (client) onClientUpdated?.(client)
+      setEditingClient(null)
+    } finally {
+      setSavingClient(false)
+    }
+  }
 
   if (!mounted) {
     return <div className="flex flex-col gap-[18px]" />
@@ -534,7 +602,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         {/* Right: Speedometer + ARR */}
         <Card className="flex flex-col items-center" style={{ padding: 20 }}>
           <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold self-start mb-1">
-            {range === 'all' ? 'Active Clients' : `Clients · ${label.toLowerCase()}`}
+            {range === 'all' ? 'Active clients' : `Active clients · ${label.toLowerCase()}`}
           </div>
           <Speedometer value={periodClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
           <div className="w-full border-t border-line mt-4 pt-4">
@@ -614,7 +682,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                   const endStr = toISO(end)
 
                   const weekMrr = clients
-                    .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+                    .filter((c) => isClientActiveAsOf(c, endStr))
                     .reduce((sum, c) => sum + c.mrr, 0)
 
                   weeklyMetrics.push({
@@ -731,7 +799,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           const weekBeforeEndStr = toISO(weekBefore)
 
           let prevMrr = clients
-            .filter((c) => c.since_date && (c.since_date as string) <= weekBeforeEndStr)
+            .filter((c) => isClientActiveAsOf(c, weekBeforeEndStr))
             .reduce((sum, c) => sum + c.mrr, 0)
 
           for (let w = weekCount; w >= 0; w--) {
@@ -742,7 +810,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             const endStr = toISO(end)
 
             const weekMrr = clients
-              .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+              .filter((c) => isClientActiveAsOf(c, endStr))
               .reduce((sum, c) => sum + c.mrr, 0)
 
             const change = weekMrr - prevMrr
@@ -848,11 +916,12 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               {(() => {
                 // Use allReps (not just active) so MRR owned by inactive reps
                 // is still attributed and counted in the per-rep breakdown.
+                const today = toISO(new Date())
                 const mrrByRep = allReps
                   .map((rep) => ({
                     rep,
                     mrr: clients
-                      .filter((c) => c.owner_id === rep.id)
+                      .filter((c) => c.owner_id === rep.id && isClientActiveAsOf(c, today))
                       .reduce((sum, c) => sum + c.mrr, 0),
                   }))
                   .filter((x) => x.mrr > 0)
@@ -1213,7 +1282,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                     const startStr = toISO(current)
 
                     const weekMrr = clients
-                      .filter((c) => c.since_date && (c.since_date as string) <= endStr)
+                      .filter((c) => isClientActiveAsOf(c, endStr))
                       .reduce((sum, c) => sum + c.mrr, 0)
 
                     if (weekMrr > 0) {
@@ -1301,6 +1370,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       <Card padding={0}>
         <div className="px-5 py-4 border-b border-line">
           <div className="text-[13px] font-semibold">Client breakdown</div>
+          <div className="text-[11px] text-ink-3 mt-0.5">Use ··· on a row to mark a client as canceled</div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[12.5px]">
@@ -1322,35 +1392,87 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                     </th>
                   )
                 })}
+                <th className="w-10 px-2 py-3 border-b border-line" />
               </tr>
             </thead>
             <tbody>
               {sortedClients.map((c) => {
                 const owner = reps.find((r) => r.id === c.owner_id)
+                const today = toISO(new Date())
+                const active = isClientActiveAsOf(c, today)
+                const isMenuOpen = openClientMenu === c.id
+                const lifetimeRevenue = fullMonthsActive(c.since_date as string, today, c.cancel_date) * c.mrr
                 return (
-                  <tr key={c.id} className="border-b border-[#1A1F30]">
+                  <tr
+                    key={c.id}
+                    className="border-b border-[#1A1F30] hover:bg-[var(--bg-2)] transition-colors"
+                  >
                     <td className="px-3.5 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.status === 'active' ? '#00E5A0' : '#FFB800' }} />
+                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? '#00E5A0' : '#FFB800' }} />
                         <span className="font-semibold">{c.name}</span>
                       </div>
                     </td>
                     <td className="mono px-3.5 py-3 text-right text-ink-3">{c.since_date}</td>
+                    <td className="mono px-3.5 py-3 text-right" style={{ color: c.cancel_date ? '#FFB800' : 'var(--ink-3)' }}>
+                      {c.cancel_date ?? '—'}
+                    </td>
                     <td className="mono px-3.5 py-3 text-right font-semibold text-ink-1">{fmtMoney(c.mrr)}</td>
-                    <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(c.mrr * 12)}</td>
+                    <td className="mono px-3.5 py-3 text-right font-semibold text-mint">{fmtMoney(lifetimeRevenue)}</td>
                     <td className="px-3.5 py-3 text-right text-ink-2">{owner ? owner.name.split(' ')[0] : '—'}</td>
+                    <td className="px-2 py-3 text-right">
+                      <div
+                        className="relative inline-block"
+                        ref={isMenuOpen ? clientMenuRef : null}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setOpenClientMenu(isMenuOpen ? null : c.id)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-line transition-colors text-[14px] font-bold leading-none"
+                          aria-label={`Actions for ${c.name}`}
+                        >
+                          ···
+                        </button>
+                        {isMenuOpen && (
+                          <div
+                            className="absolute right-0 top-full mt-1 w-40 rounded-xl border border-line-2 overflow-hidden shadow-xl z-20"
+                            style={{ background: 'var(--card-bottom)' }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenClientMenu(null)
+                                setEditingClient(c)
+                              }}
+                              className="w-full text-left px-3.5 py-2.5 text-[12px] font-medium text-ink hover:bg-line transition-colors"
+                            >
+                              Canceled
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
               {clients.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3.5 py-8 text-center text-ink-3 text-[12px]">No clients yet</td>
+                  <td colSpan={7} className="px-3.5 py-8 text-center text-ink-3 text-[12px]">No clients yet</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
       </Card>
+
+      {editingClient && (
+        <EditClientModal
+          client={editingClient}
+          onSave={handleSaveCancelDate}
+          onCancel={() => setEditingClient(null)}
+          saving={savingClient}
+        />
+      )}
 
     </div>
   )

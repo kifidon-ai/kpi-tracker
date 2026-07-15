@@ -133,6 +133,11 @@ async function run() {
     DROP INDEX IF EXISTS idx_tasks_assignee
   `)
 
+  // 010 — cancel_date on clients (churn; drops from speedometer after this date)
+  await db.execute(sql`
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS cancel_date date
+  `)
+
   console.log('Migrations complete')
   process.exit(0)
 }

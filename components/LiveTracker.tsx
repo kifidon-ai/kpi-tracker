@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Rep, Client, ActivityLogEntry, Target, CalendarEvent, CalendarIntent } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
-import { relativeTime, getPeriodBounds, getPeriodLabel, type LiveRange } from '@/lib/helpers'
+import { relativeTime, getPeriodBounds, getPeriodLabel, getTodayKeyET, loggedAtEndOfDayET, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
 import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
@@ -140,7 +140,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     if (!def) return
     // When viewing a past period, backdate the entry to that period so it
     // counts toward the historical date (e.g. adding a demo to "yesterday").
-    const loggedAt = isHistorical ? `${endISO}T12:00:00.000Z` : undefined
+    const loggedAt = isHistorical ? loggedAtEndOfDayET(endISO) : undefined
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
@@ -230,6 +230,13 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
       [activeRep]: { ...(prev[activeRep] ?? {}), [type]: ((prev[activeRep] ?? {})[type] ?? 0) + 1 },
     }))
 
+    const loggedAt =
+      isHistorical && range === 'day'
+        ? loggedAtEndOfDayET(endISO)
+        : data.scheduledDate !== getTodayKeyET()
+          ? loggedAtEndOfDayET(data.scheduledDate)
+          : undefined
+
     try {
       await logCalendarEventAction({
         repId:         activeRep,
@@ -237,6 +244,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         activityType:  type,
         scheduledDate: data.scheduledDate,
         intent:        data.intent,
+        loggedAt,
       })
 
       // Refresh the events for the currently viewed period so the day calendar
@@ -253,7 +261,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, ((prev[activeRep] ?? {})[type] ?? 0) - 1) },
       }))
     }
-  }, [rep, activeRep, calendarModal, startISO, endISO])
+  }, [rep, activeRep, calendarModal, startISO, endISO, isHistorical, range])
 
   function handleInc(metricKey: string) {
     if (metricKey === 'closed') { setShowClosedModal(true); return }

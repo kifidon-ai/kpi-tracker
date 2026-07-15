@@ -166,6 +166,23 @@ export async function logClosedDealAction(data: {
   return { deal, client, entry }
 }
 
+export async function updateClientCancelDateAction(clientId: string, cancelDate: string | null) {
+  const today = new Date().toISOString().slice(0, 10)
+  const status =
+    cancelDate && cancelDate <= today ? 'cancelled' : 'active'
+
+  const [client] = await db
+    .update(clients)
+    .set({
+      cancel_date: cancelDate,
+      status,
+    })
+    .where(eq(clients.id, clientId))
+    .returning()
+
+  return { client }
+}
+
 export async function createTaskAction(data: {
   title: string
   description?: string

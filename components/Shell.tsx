@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 
-import { fmtMoney } from '@/lib/helpers'
+import { fmtMoney, isClientActiveAsOf } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { LiveTracker } from './LiveTracker'
 import { TeamPerformance } from './TeamPerformance'
@@ -118,11 +118,16 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  const mrr = clients.filter((c) => c.status === 'active').reduce((s, c) => s + c.mrr, 0)
-  const activeClientCount = clients.filter((c) => c.status === 'active').length
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const mrr = clients.filter((c) => isClientActiveAsOf(c, todayISO)).reduce((s, c) => s + c.mrr, 0)
+  const activeClientCount = clients.filter((c) => isClientActiveAsOf(c, todayISO)).length
 
   function handleDealClosed(client: Client) {
     setClients((prev) => [client, ...prev])
+  }
+
+  function handleClientUpdated(client: Client) {
+    setClients((prev) => prev.map((c) => (c.id === client.id ? client : c)))
   }
 
   async function signOut() {
@@ -275,6 +280,7 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
             targets={targets}
             initialMrr={mrr}
             activeClientCount={activeClientCount}
+            onClientUpdated={handleClientUpdated}
           />
         )}
         {tab === 'tasks' && (

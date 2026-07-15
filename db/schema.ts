@@ -16,14 +16,15 @@ export const reps = pgTable('reps', {
 })
 
 export const clients = pgTable('clients', {
-  id:         uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  name:       text('name').notNull(),
-  plan:       text('plan').notNull().default('Starter'),
-  mrr:        integer('mrr').notNull().default(0),
-  since_date: date('since_date').notNull().default(sql`CURRENT_DATE`),
-  owner_id:   text('owner_id').notNull().references(() => reps.id),
-  status:     text('status').notNull().default('active'),
-  created_at: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  id:          uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  name:        text('name').notNull(),
+  plan:        text('plan').notNull().default('Starter'),
+  mrr:         integer('mrr').notNull().default(0),
+  since_date:  date('since_date').notNull().default(sql`CURRENT_DATE`),
+  cancel_date: date('cancel_date'),
+  owner_id:    text('owner_id').notNull().references(() => reps.id),
+  status:      text('status').notNull().default('active'),
+  created_at:  timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 })
 
 export const activity_log_entries = pgTable('activity_log_entries', {
