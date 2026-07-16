@@ -319,8 +319,8 @@ interface ArrGrowthChartProps {
   formatter?: (v: number) => string
 }
 
-// Monotone cubic interpolation (Fritsch-Carlson) — no overshoot on step-like ARR data
-function monotoneCubic(pts: [number, number][]): string {
+// Monotone cubic interpolation (Fritsch-Carlson) — softened slopes for a calmer growth line
+function monotoneCubic(pts: [number, number][], tension = 0.55): string {
   const n = pts.length
   if (n === 0) return ''
   if (n === 1) return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`
@@ -338,8 +338,10 @@ function monotoneCubic(pts: [number, number][]): string {
   for (let i = 0; i < n - 1; i++) {
     if (delta[i] === 0) { m[i] = 0; m[i + 1] = 0; continue }
     const s = Math.sqrt((m[i] / delta[i]) ** 2 + (m[i + 1] / delta[i]) ** 2)
-    if (s > 3) { const t = 3 / s; m[i] *= t; m[i + 1] *= t }
+    if (s > 2) { const t = 2 / s; m[i] *= t; m[i + 1] *= t }
   }
+  // Dial back tangent strength so steps don't look so sharp
+  for (let i = 0; i < n; i++) m[i] *= tension
 
   const d: string[] = [`M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`]
   for (let i = 0; i < n - 1; i++) {
@@ -445,12 +447,13 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
 
         {actualPts.map((p, i) => {
           const hasClients = (actual[i].clientNames?.length ?? 0) > 0
+          if (!hasClients) return null
           return (
             <g
               key={i}
-              onMouseEnter={() => hasClients && setHovered(i)}
+              onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
-              style={{ cursor: hasClients ? 'pointer' : 'default' }}
+              style={{ cursor: 'pointer' }}
             >
               <circle cx={p[0].toFixed(1)} cy={p[1].toFixed(1)} r="14" fill="transparent" />
               <circle
@@ -494,14 +497,24 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
               Total ARR: {formatter(Math.round(actual[hovered].arr))}
             </div>
             {clientArrs.length > 0 ? (
-              clientArrs.map((client, i) => (
+              <>
+                <div style={{ fontSize: 9, color: '#3A4460', fontFamily: 'JetBrains Mono, monospace', marginBottom: 4, letterSpacing: '0.3px' }}>
+                  MRR changes
+                </div>
+                {clientArrs.map((client, i) => (
                 <div key={i} style={{ fontSize: 11, color: '#D8DEEF', lineHeight: '1.5', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{client.name}</span>
-                  <span style={{ color: '#00E5A0', fontFamily: 'JetBrains Mono, monospace', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                    {formatter(Math.round(client.arr))}
+                  <span style={{
+                    color: client.arr < 0 ? '#FF5468' : '#00E5A0',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {client.arr > 0 ? '+' : ''}{formatter(Math.round(client.arr))}
                   </span>
                 </div>
-              ))
+                ))}
+              </>
             ) : (
               hoveredClients.map((name, i) => (
                 <div key={i} style={{ fontSize: 11, color: '#D8DEEF', lineHeight: '1.5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

@@ -61,7 +61,11 @@ export function isClientActiveDuringPeriod(
   return true
 }
 
-/** Complete billing months from since_date through asOf (minimum 1 if active on asOf). */
+/**
+ * Billing periods from since_date through asOf.
+ * Counts completed month anniversaries, then +1 for the current/starting period
+ * (e.g. onboarded this month → 1; one anniversary elapsed → 2).
+ */
 export function fullMonthsActive(
   sinceDate: string,
   asOf: string,
@@ -73,19 +77,19 @@ export function fullMonthsActive(
   const start = new Date(sinceDate + 'T00:00')
   const endD = new Date(end + 'T00:00')
 
-  let months = 0
+  let completed = 0
   const cursor = new Date(start)
   while (true) {
     const next = new Date(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate())
     if (next > endD) break
-    months++
+    completed++
     cursor.setTime(next.getTime())
   }
 
-  return Math.max(months, 1)
+  return completed + 1
 }
 
-/** Cumulative subscription value: MRR × full months active through asOf. */
+/** Cumulative subscription value: MRR × billing periods through asOf. */
 export function clientRevenueContribution(
   c: Pick<Client, 'since_date' | 'cancel_date' | 'mrr'>,
   asOf: string,

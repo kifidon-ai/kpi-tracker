@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import type { Rep, CalendarIntent } from '@/lib/types'
+import { getTodayKeyET } from '@/lib/helpers'
 
 interface CalendarEventModalProps {
   rep: Rep
@@ -19,7 +20,7 @@ const INTENT_OPTIONS: { value: CalendarIntent; label: string; color: string }[] 
 ]
 
 export function CalendarEventModal({ rep, activityType, companies, defaultDate, onSave, onCancel }: CalendarEventModalProps) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getTodayKeyET()
   const [companyName, setCompanyName]     = useState('')
   const [scheduledDate, setScheduledDate] = useState(defaultDate ?? today)
   const [intent, setIntent]               = useState<CalendarIntent>('medium')

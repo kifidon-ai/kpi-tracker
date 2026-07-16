@@ -49,31 +49,53 @@ export async function logActivityAction(
   return { entry }
 }
 
-export async function decrementActivityAction(repId: string, metricKey: string, periodStartISO: string) {
+export async function decrementActivityAction(
+  repId: string,
+  metricKey: string,
+  periodStartISO: string,
+  periodEndISO?: string,
+) {
+  const filters = [
+    eq(activity_log_entries.rep_id, repId),
+    eq(activity_log_entries.metric_key, metricKey),
+    gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, periodStartISO),
+  ]
+  if (periodEndISO) {
+    filters.push(
+      lte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, periodEndISO),
+    )
+  }
+
   const rows = await db
     .select()
     .from(activity_log_entries)
-    .where(and(
-      eq(activity_log_entries.rep_id, repId),
-      eq(activity_log_entries.metric_key, metricKey),
-      gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, periodStartISO),
-    ))
+    .where(and(...filters))
     .orderBy(desc(activity_log_entries.logged_at))
     .limit(1)
 
-  if (!rows.length) return { deleted: false, id: null }
+  if (!rows.length) return { deleted: false, id: null, calendarId: null as string | null }
 
   const row = rows[0]
+  const calendarId = row.calendar_id ?? null
+
   if (row.delta <= 1) {
+    // Delete the log first so the calendar FK does not block removal
     await db.delete(activity_log_entries).where(eq(activity_log_entries.id, row.id))
-    return { deleted: true, id: row.id }
+  } else {
+    await db
+      .update(activity_log_entries)
+      .set({ delta: row.delta - 1 })
+      .where(eq(activity_log_entries.id, row.id))
   }
 
-  await db
-    .update(activity_log_entries)
-    .set({ delta: row.delta - 1 })
-    .where(eq(activity_log_entries.id, row.id))
-  return { deleted: false, id: null }
+  // Disc/demo bookings are tied to a calendar row — remove that too
+  if (calendarId) {
+    try {
+      await db.delete(calendar).where(eq(calendar.id, calendarId))
+    } catch { /* ignore */ }
+  }
+
+  return { deleted: true, id: row.id, calendarId }
 }
 
 export async function updateTargetsAction(
@@ -88,24 +110,23 @@ export async function updateTargetsAction(
   return target
 }
 
-export async function getTrendAction(granularity: 'week' | 'day') {
-  const windowDays = granularity === 'week' ? 42 : 30
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - windowDays)
-
+export async function getTrendAction(startISO: string, endISO: string) {
   const rows = await db
     .select({
-      date:       sql<string>`(${activity_log_entries.logged_at} AT TIME ZONE 'UTC')::date::text`,
+      date:       sql<string>`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date::text`,
       metric_key: activity_log_entries.metric_key,
       total:      sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
     })
     .from(activity_log_entries)
-    .where(gte(activity_log_entries.logged_at, cutoff.toISOString()))
+    .where(and(
+      gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, startISO),
+      lte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, endISO),
+    ))
     .groupBy(
-      sql`(${activity_log_entries.logged_at} AT TIME ZONE 'UTC')::date::text`,
+      sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date::text`,
       activity_log_entries.metric_key,
     )
-    .orderBy(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'UTC')::date::text`)
+    .orderBy(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date::text`)
 
   return rows
 }
@@ -277,11 +298,14 @@ export async function getCalendarEventsForPeriodAction(
   } catch { return [] }
 }
 
-export async function deleteCalendarEventAction(eventId: string, repId: string, metricKey: string, periodStartISO: string) {
+export async function deleteCalendarEventAction(eventId: string, repId: string, _metricKey: string, _periodStartISO: string) {
+  // Always remove linked activity logs first (FK: activity_log.calendar_id → calendar.id)
+  try {
+    await db.delete(activity_log_entries).where(eq(activity_log_entries.calendar_id, eventId))
+  } catch { /* ignore */ }
   try {
     await db.delete(calendar).where(and(eq(calendar.id, eventId), eq(calendar.rep_id, repId)))
   } catch { /* table may not exist yet */ }
-  await decrementActivityAction(repId, metricKey, periodStartISO)
   return { ok: true }
 }
 
@@ -297,21 +321,18 @@ export async function logCalendarEventAction(data: {
     ? { label: `Discovery booked · ${data.companyName}`, icon: 'calendar', color: '#FFD700', metricKey: 'disc' }
     : { label: `Demo booked · ${data.companyName}`,      icon: 'present',  color: '#00E5A0', metricKey: 'demo' }
 
-  let event = null
-  try {
-    const [row] = await db
-      .insert(calendar)
-      .values({
-        rep_id:         data.repId,
-        company_name:   data.companyName,
-        activity_type:  data.activityType,
-        scheduled_date: data.scheduledDate,
-        intent:         data.intent,
-        status:         'scheduled',
-      })
-      .returning()
-    event = row
-  } catch { /* table may not exist yet — still log the activity */ }
+  // Calendar first so we can link the activity log via calendar_id
+  const [event] = await db
+    .insert(calendar)
+    .values({
+      rep_id:         data.repId,
+      company_name:   data.companyName,
+      activity_type:  data.activityType,
+      scheduled_date: data.scheduledDate,
+      intent:         data.intent,
+      status:         'scheduled',
+    })
+    .returning()
 
   const [entry] = await db
     .insert(activity_log_entries)
@@ -322,7 +343,7 @@ export async function logCalendarEventAction(data: {
       icon:        def.icon,
       color:       def.color,
       delta:       1,
-      calendar_id: event?.id,
+      calendar_id: event.id,
       ...(data.loggedAt ? { logged_at: data.loggedAt } : {}),
     })
     .returning()

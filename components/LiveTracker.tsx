@@ -3,14 +3,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Rep, Client, ActivityLogEntry, Target, CalendarEvent, CalendarIntent } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
-import { relativeTime, getPeriodBounds, getPeriodLabel, getTodayKeyET, loggedAtEndOfDayET, type LiveRange } from '@/lib/helpers'
+import { relativeTime, getPeriodBounds, getPeriodLabel, loggedAtEndOfDayET, type LiveRange } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
 import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
 import { ActivityPipelineCard } from './ActivityPipelineCard'
 import { ClosedDealModal } from './ClosedDealModal'
 import { CalendarEventModal } from './CalendarEventModal'
-import { CalendarDecrementPicker } from './CalendarDecrementPicker'
 import { DayCalendar } from './DayCalendar'
 import {
   getActivityCountsAction,
@@ -18,12 +17,9 @@ import {
   decrementActivityAction,
   logClosedDealAction,
   logCalendarEventAction,
-  getCalendarEventsAction,
   getCalendarCompaniesAction,
-  getCalendarEventsForPeriodAction,
   getCalendarEventsForDateRangeAction,
   getCalendarEventsForDateRangeAllRepsAction,
-  deleteCalendarEventAction,
 } from '@/app/actions'
 
 interface LiveTrackerProps {
@@ -47,7 +43,6 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
   const [now, setNow] = useState(new Date())
   const [showClosedModal, setShowClosedModal] = useState(false)
   const [calendarModal, setCalendarModal] = useState<'disc' | 'demo' | null>(null)
-  const [decrementPicker, setDecrementPicker] = useState<{ type: 'disc' | 'demo'; events: CalendarEvent[] } | null>(null)
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([])
   const [calendarCompanies, setCalendarCompanies] = useState<string[]>([])
   const [range, setRange] = useState<LiveRange>('day')
@@ -61,7 +56,11 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
   const endISO   = bounds.end.toISOString().slice(0, 10)
 
   useEffect(() => {
-    getActivityCountsAction(startISO, endISO).then(setCountsByRep)
+    let cancelled = false
+    getActivityCountsAction(startISO, endISO).then((res) => {
+      if (!cancelled) setCountsByRep(res)
+    })
+    return () => { cancelled = true }
   }, [startISO, endISO])
 
   // Load calendar companies and today's events
@@ -70,13 +69,19 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     if (activeRep === 'team') {
-      getCalendarEventsForDateRangeAllRepsAction(startISO, endISO).then(setTodayEvents)
+      getCalendarEventsForDateRangeAllRepsAction(startISO, endISO).then((events) => {
+        if (!cancelled) setTodayEvents(events)
+      })
     } else if (activeRep) {
-      getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then(setTodayEvents)
+      getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then((events) => {
+        if (!cancelled) setTodayEvents(events)
+      })
     } else {
       setTodayEvents([])
     }
+    return () => { cancelled = true }
   }, [activeRep, startISO, endISO])
 
   function handleRangeChange(v: string) {
@@ -124,7 +129,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     if (!perPersonTarget) return 0
     const weekly = (perPersonTarget as Record<string, unknown>)[key] as number ?? 0
     const repMult = forTeam ? activeReps.length : 1
-    return weekly * repMult * periodMult
+    return Math.round(weekly * repMult * periodMult * 10) / 10
   }
 
   const effectiveTargets: Record<string, number> = Object.fromEntries(
@@ -160,48 +165,24 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     const current = (countsByRep[activeRep] ?? {})[metricKey] ?? 0
     if (current <= 0) return
 
-    // For disc/demo, show a picker so the user selects which calendar entry to remove
-    if (metricKey === 'disc' || metricKey === 'demo') {
-      const events = await getCalendarEventsForPeriodAction(activeRep, metricKey, startISO, endISO)
-      setDecrementPicker({ type: metricKey, events })
-      return
-    }
-
+    // Undo the most recent activity log in this period. For disc/demo that also
+    // deletes the linked calendar row (via calendar_id), not "meetings scheduled today".
     setCountsByRep((prev) => ({
       ...prev,
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current - 1 },
     }))
-    const result = await decrementActivityAction(activeRep, metricKey, startISO)
+    const result = await decrementActivityAction(activeRep, metricKey, startISO, endISO)
     if (!result.deleted && !result.id) {
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: current },
       }))
+      return
+    }
+    if (result.calendarId) {
+      setTodayEvents((prev) => prev.filter((e) => e.id !== result.calendarId))
     }
   }, [isTeam, rep, activeRep, countsByRep, startISO, endISO])
-
-  const handleDecrementPickerSelect = useCallback(async (event: CalendarEvent) => {
-    if (!decrementPicker) return
-    const { type } = decrementPicker
-    setDecrementPicker(null)
-
-    const current = (countsByRep[activeRep] ?? {})[type] ?? 0
-    setCountsByRep((prev) => ({
-      ...prev,
-      [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, current - 1) },
-    }))
-
-    try {
-      await deleteCalendarEventAction(event.id, activeRep, type, startISO)
-      // Remove from today's events if present
-      setTodayEvents((prev) => prev.filter((e) => e.id !== event.id))
-    } catch {
-      setCountsByRep((prev) => ({
-        ...prev,
-        [activeRep]: { ...(prev[activeRep] ?? {}), [type]: current },
-      }))
-    }
-  }, [decrementPicker, activeRep, countsByRep, startISO])
 
   const logClosedDeal = useCallback(async (data: { companyName: string; monthlyPrice: number; closedDate: string }) => {
     setShowClosedModal(false)
@@ -230,12 +211,9 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
       [activeRep]: { ...(prev[activeRep] ?? {}), [type]: ((prev[activeRep] ?? {})[type] ?? 0) + 1 },
     }))
 
-    const loggedAt =
-      isHistorical && range === 'day'
-        ? loggedAtEndOfDayET(endISO)
-        : data.scheduledDate !== getTodayKeyET()
-          ? loggedAtEndOfDayET(data.scheduledDate)
-          : undefined
+    // Count against when the booking was logged (today / historical period),
+    // not the meeting's scheduled date — otherwise future bookings vanish on refresh.
+    const loggedAt = isHistorical ? loggedAtEndOfDayET(endISO) : undefined
 
     try {
       await logCalendarEventAction({
@@ -247,13 +225,11 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         loggedAt,
       })
 
-      // Refresh the events for the currently viewed period so the day calendar
-      // stays in sync whether the booking was for today or a historical date.
+      // Refresh meetings list whenever the scheduled date falls in the viewed range
       if (data.scheduledDate >= startISO && data.scheduledDate <= endISO) {
         getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then(setTodayEvents)
       }
 
-      // Refresh companies list
       getCalendarCompaniesAction().then(setCalendarCompanies)
     } catch {
       setCountsByRep((prev) => ({
@@ -261,7 +237,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, ((prev[activeRep] ?? {})[type] ?? 0) - 1) },
       }))
     }
-  }, [rep, activeRep, calendarModal, startISO, endISO, isHistorical, range])
+  }, [rep, activeRep, calendarModal, startISO, endISO, isHistorical])
 
   function handleInc(metricKey: string) {
     if (metricKey === 'closed') { setShowClosedModal(true); return }
@@ -491,14 +467,6 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         />
       )}
 
-      {decrementPicker && (
-        <CalendarDecrementPicker
-          events={decrementPicker.events}
-          activityType={decrementPicker.type}
-          onSelect={handleDecrementPickerSelect}
-          onCancel={() => setDecrementPicker(null)}
-        />
-      )}
     </div>
   )
 }
@@ -533,7 +501,11 @@ function LogTile({ def, value, target, disabled, onInc, onDec }: LogTileProps) {
       <div>
         <div className="flex items-baseline gap-1.5">
           <span className="mono text-[26px] font-extrabold text-ink leading-none">{value}</span>
-          {target != null && target > 0 && <span className="mono text-[10px] text-ink-3">/ {target}</span>}
+          {target != null && target > 0 && (
+            <span className="mono text-[10px] text-ink-3">
+              / {Number.isInteger(target) ? target : target.toFixed(1)}
+            </span>
+          )}
         </div>
         {target != null && target > 0 && (
           <div className="mt-[5px]">

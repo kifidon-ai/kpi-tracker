@@ -7,9 +7,7 @@ import {
   fmtNum,
   pct,
   isClientActiveAsOf,
-  isClientActiveDuringPeriod,
   fullMonthsActive,
-  clientRevenueContribution,
 } from '@/lib/helpers'
 import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
 import { LineChart, Speedometer, ArrGrowthChart } from './charts'
@@ -58,7 +56,82 @@ function getPeriodBounds(range: Range, offset: number): { start: Date; end: Date
   return { start, end }
 }
 
-function toISO(d: Date) { return d.toISOString().slice(0, 10) }
+function toISO(d: Date) {
+  // Local calendar date — avoid UTC day-shift from toISOString()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function mondayOf(d: Date): Date {
+  const copy = new Date(d)
+  copy.setHours(0, 0, 0, 0)
+  const dow = copy.getDay()
+  const daysFromMonday = dow === 0 ? 6 : dow - 1
+  copy.setDate(copy.getDate() - daysFromMonday)
+  return copy
+}
+
+/** Sunday-aligned week ends (or range end) for each week overlapping [start, end]. */
+function bucketEndDatesInRange(start: Date, end: Date, stepDays = 7): string[] {
+  const out: string[] = []
+  const endCap = new Date(end)
+  endCap.setHours(0, 0, 0, 0)
+  const monday = mondayOf(start)
+
+  for (let cursor = new Date(monday); cursor <= endCap; cursor.setDate(cursor.getDate() + stepDays)) {
+    const bucketEnd = new Date(cursor)
+    bucketEnd.setDate(cursor.getDate() + stepDays - 1)
+    const asOf = bucketEnd > endCap ? endCap : bucketEnd
+    const iso = toISO(asOf)
+    if (!out.includes(iso)) out.push(iso)
+  }
+
+  return out
+}
+
+/** Month-end dates (or range end) for each calendar month overlapping [start, end]. */
+function monthEndDatesInRange(start: Date, end: Date): string[] {
+  const out: string[] = []
+  const endCap = new Date(end)
+  endCap.setHours(0, 0, 0, 0)
+
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+  while (cursor <= endCap) {
+    const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+    const asOf = monthEnd > endCap ? endCap : monthEnd
+    const iso = toISO(asOf)
+    if (!out.includes(iso)) out.push(iso)
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+  }
+
+  return out
+}
+
+/** Calendar week containing `dateISO`, capped at that date (Mon → date). Non-overlapping across weeks. */
+function weekBoundsForChartDate(dateISO: string): { start: string; end: string } {
+  const end = new Date(dateISO + 'T00:00')
+  const start = mondayOf(end)
+  return { start: toISO(start), end: dateISO }
+}
+
+function monthBoundsForEnd(monthEndISO: string): { start: string; end: string } {
+  const end = new Date(monthEndISO + 'T00:00')
+  const start = new Date(end.getFullYear(), end.getMonth(), 1)
+  return { start: toISO(start), end: monthEndISO }
+}
+
+/** Light 3-point moving average; keeps first/last exact so endpoints stay honest. */
+function smoothSeriesArr<T extends { arr: number }>(points: T[]): T[] {
+  if (points.length < 3) return points
+  return points.map((p, i) => {
+    if (i === 0 || i === points.length - 1) return p
+    const prev = points[i - 1].arr
+    const next = points[i + 1].arr
+    return { ...p, arr: Math.round((prev + 2 * p.arr + next) / 4) }
+  })
+}
 
 function inBoundsDate(dateStr: string, b: { start: Date; end: Date } | null): boolean {
   if (!b) return true
@@ -115,7 +188,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
   const [range, setRange] = useState<Range>('week')
   const [offset, setOffset] = useState(0)
-  const [trendGranularity, setTrendGranularity] = useState<'week' | 'day'>('week')
   const [clientSort, setClientSort] = useState<{ key: ClientSortKey; dir: 'asc' | 'desc' }>({ key: 'since_date', dir: 'desc' })
 
   // Server-side aggregated counts for the selected period and previous period
@@ -149,7 +221,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     let endISO: string
 
     if (range === 'all') {
-      // For "all time", find the earliest client date and use the server aggregation
       const sorted = [...clients].filter((c) => c.since_date).sort((a, b) => (a.since_date as string).localeCompare(b.since_date as string))
       startISO = sorted[0]?.since_date ?? toISO(new Date(2000, 0, 1))
       const today = new Date()
@@ -161,7 +232,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       endISO   = toISO(bounds.end)
     }
 
+    let cancelled = false
+
     getActivityCountsAction(startISO, endISO).then((res) => {
+      if (cancelled) return
       const merged: Record<string, number> = {}
       Object.values(res).forEach((m) => {
         Object.entries(m).forEach(([k, v]) => { merged[k] = (merged[k] ?? 0) + v })
@@ -170,8 +244,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       setRepTotals(res)
     })
 
-    // Period-scoped attendance (from the calendar table) for the conversion pipeline.
-    getShowRatesAction(startISO, endISO).then(setPeriodShowRates)
+    getShowRatesAction(startISO, endISO).then((res) => {
+      if (!cancelled) setPeriodShowRates(res)
+    })
 
     if (range === 'all' || !prevBounds) {
       setPrevTotals({})
@@ -179,6 +254,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       const ps = toISO(prevBounds.start)
       const pe = toISO(prevBounds.end)
       getActivityCountsAction(ps, pe).then((res) => {
+        if (cancelled) return
         const merged: Record<string, number> = {}
         Object.values(res).forEach((m) => {
           Object.entries(m).forEach(([k, v]) => { merged[k] = (merged[k] ?? 0) + v })
@@ -186,7 +262,12 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         setPrevTotals(merged)
       })
     }
-  }, [range, offset, bounds, prevBounds, clients])
+
+    return () => { cancelled = true }
+    // Intentionally depend on period only — not clients — so a refresh that
+    // replaces the clients array doesn't re-fire all of these reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, offset])
 
   const tgt = useMemo(() => {
     const period = range === 'day' ? 'daily' : range === 'week' ? 'weekly' : range === 'month' ? 'monthly' : null
@@ -214,14 +295,45 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       const today = toISO(new Date())
       return clients.filter((c) => isClientActiveAsOf(c, today)).length
     }
-    const startStr = toISO(bounds.start)
+    // Snapshot at period end so day / week / month agree when looking at "now"
     const endStr = toISO(bounds.end)
-    return clients.filter((c) => isClientActiveDuringPeriod(c, startStr, endStr)).length
+    return clients.filter((c) => isClientActiveAsOf(c, endStr)).length
   }, [clients, bounds])
 
+  // Trend window shifts with the global Day/Week/Month/All + arrow controls
+  const trendWindow = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const end = bounds ? new Date(bounds.end) : new Date(today)
+    end.setHours(0, 0, 0, 0)
+
+    if (range === 'day') {
+      const start = new Date(end)
+      start.setDate(end.getDate() - 13)
+      return { start, end, granularity: 'day' as const, title: 'Daily trend · 14 days' }
+    }
+    if (range === 'month') {
+      const start = bounds ? new Date(bounds.start) : new Date(today.getFullYear(), today.getMonth(), 1)
+      start.setHours(0, 0, 0, 0)
+      return { start, end, granularity: 'day' as const, title: 'Daily trend · this month' }
+    }
+    // week + all → weekly buckets ending at the selected period
+    const weekStart = bounds ? new Date(bounds.start) : mondayOf(end)
+    weekStart.setHours(0, 0, 0, 0)
+    const weeksBack = range === 'all' ? 11 : 5
+    const start = new Date(weekStart)
+    start.setDate(weekStart.getDate() - weeksBack * 7)
+    return {
+      start,
+      end,
+      granularity: 'week' as const,
+      title: range === 'all' ? 'Weekly trend · last 12 weeks' : 'Weekly trend · 6 weeks',
+    }
+  }, [range, bounds])
+
   useEffect(() => {
-    getTrendAction(trendGranularity).then(setTrendRows)
-  }, [trendGranularity])
+    getTrendAction(toISO(trendWindow.start), toISO(trendWindow.end)).then(setTrendRows)
+  }, [trendWindow])
 
   useEffect(() => {
     getDiscByHourAction().then(setDiscByHour)
@@ -235,49 +347,67 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     getAttendedConversionsAction().then(setAttendedConversions)
   }, [])
 
-  // Trend charts: aggregated server-side, bucketed here
-  const weeks = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const dow = today.getDay()
-    const daysFromMonday = dow === 0 ? 6 : dow - 1
-    const thisMonday = new Date(today)
-    thisMonday.setDate(today.getDate() - daysFromMonday)
+  const trendData = useMemo(() => {
+    const { start, end, granularity } = trendWindow
+    const out: Array<{
+      label: string
+      dials: number
+      conv: number
+      vm: number
+      disc: number
+      demo: number
+      onb: number
+      closed: number
+    }> = []
 
-    const out = []
-    for (let w = 5; w >= 0; w--) {
-      const start = new Date(thisMonday)
-      start.setDate(thisMonday.getDate() - w * 7)
-      const end = w === 0 ? new Date(today) : new Date(start)
-      if (w > 0) end.setDate(start.getDate() + 6)
-      const startStr = toISO(start)
-      const endStr   = toISO(end)
+    if (granularity === 'day') {
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = toISO(d)
+        const t: Record<string, number> = {}
+        trendRows
+          .filter((r) => r.date === dateStr)
+          .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
+        out.push({
+          label: (d.getMonth() + 1) + '/' + d.getDate(),
+          dials: t.dials ?? 0,
+          conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
+          vm: t.vm ?? 0,
+          disc: t.disc ?? 0,
+          demo: t.demo ?? 0,
+          onb: t.onb ?? 0,
+          closed: t.closed ?? 0,
+        })
+      }
+      return out
+    }
+
+    // Weekly buckets from Monday-aligned start through end
+    for (let cursor = mondayOf(start); cursor <= end; cursor.setDate(cursor.getDate() + 7)) {
+      const weekStart = new Date(cursor)
+      const weekEnd = new Date(cursor)
+      weekEnd.setDate(cursor.getDate() + 6)
+      const asOf = weekEnd > end ? end : weekEnd
+      const startStr = toISO(weekStart)
+      const endStr = toISO(asOf)
       const t: Record<string, number> = {}
-      trendRows.filter((r) => r.date >= startStr && r.date <= endStr)
-               .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
-      const label = w === 0 ? 'Now' : (start.getMonth() + 1) + '/' + start.getDate()
-      out.push({ label, dials: t.dials ?? 0, conv: t.dm_conv ?? 0, vm: t.vm ?? 0,
-        disc: t.disc ?? 0, demo: t.demo ?? 0, onb: t.onb ?? 0, closed: t.closed ?? 0 })
+      trendRows
+        .filter((r) => r.date >= startStr && r.date <= endStr)
+        .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
+      const isCurrent = endStr === toISO(end)
+      out.push({
+        label: isCurrent && offset === 0 && range !== 'all' ? 'Now' : (weekStart.getMonth() + 1) + '/' + weekStart.getDate(),
+        dials: t.dials ?? 0,
+        conv: t.dm_conv ?? 0,
+        vm: t.vm ?? 0,
+        disc: t.disc ?? 0,
+        demo: t.demo ?? 0,
+        onb: t.onb ?? 0,
+        closed: t.closed ?? 0,
+      })
     }
     return out
-  }, [trendRows])
+  }, [trendRows, trendWindow, offset, range])
 
-  const days = useMemo(() => {
-    const out = []
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i)
-      const dateStr = toISO(d)
-      const t: Record<string, number> = {}
-      trendRows.filter((r) => r.date === dateStr)
-               .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
-      out.push({ label: (d.getMonth() + 1) + '/' + d.getDate(),
-        dials: t.dials ?? 0, conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0), vm: t.vm ?? 0,
-        disc: t.disc ?? 0, demo: t.demo ?? 0, onb: t.onb ?? 0, closed: t.closed ?? 0 })
-    }
-    return out
-  }, [trendRows])
-
-  const trendData = trendGranularity === 'week' ? weeks : days
   const delta = (a: number, b: number) => (b ? ((a - b) / b) * 100 : null)
   const label = periodLabel(range, offset, bounds)
 
@@ -332,43 +462,91 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     const windowEndCapped = windowEnd > today ? new Date(today) : windowEnd
     const windowStartStr = toISO(windowStart)
     const windowEndStr   = toISO(windowEndCapped)
+    const useMonthlyBuckets = range === 'all'
+    const useWeeklyBuckets = range === 'month'
+    const useBuckets = useMonthlyBuckets || useWeeklyBuckets
 
-    // Collect unique signup/cancel dates within the window; always anchor both ends
-    const eventDates = [...new Set([
-      ...sorted
-        .filter((c) => { const d = c.since_date as string; return d >= windowStartStr && d <= windowEndStr })
-        .map((c) => c.since_date as string),
-      ...sorted
-        .filter((c) => { const d = c.cancel_date as string | null; return d && d >= windowStartStr && d <= windowEndStr })
-        .map((c) => c.cancel_date as string),
-    ])]
-    if (!eventDates.includes(windowStartStr)) eventDates.unshift(windowStartStr)
-    if (!eventDates.includes(windowEndStr))   eventDates.push(windowEndStr)
-    eventDates.sort()
+    const chartDates = (() => {
+      if (useMonthlyBuckets) {
+        const months = monthEndDatesInRange(windowStart, windowEndCapped)
+        if (months.length === 0 || months[months.length - 1] !== windowEndStr) {
+          months.push(windowEndStr)
+        }
+        return months
+      }
+      if (useWeeklyBuckets) {
+        const weeks = bucketEndDatesInRange(windowStart, windowEndCapped, 7)
+        if (weeks.length === 0 || weeks[weeks.length - 1] !== windowEndStr) {
+          weeks.push(windowEndStr)
+        }
+        return weeks
+      }
 
-    const actual = eventDates.map((date) => {
-      const signedUpOnDate = sorted.filter((c) => (c.since_date as string) === date)
-      const cancelledOnDate = sorted.filter((c) => c.cancel_date === date)
-      const contribution = (c: Client, asOf: string) =>
-        c.mrr * fullMonthsActive(c.since_date as string, asOf, c.cancel_date)
+      const eventDates = [...new Set([
+        ...sorted
+          .filter((c) => { const d = c.since_date as string; return d >= windowStartStr && d <= windowEndStr })
+          .map((c) => c.since_date as string),
+        ...sorted
+          .filter((c) => { const d = c.cancel_date as string | null; return d && d >= windowStartStr && d <= windowEndStr })
+          .map((c) => c.cancel_date as string),
+      ])]
+      if (!eventDates.includes(windowStartStr)) eventDates.unshift(windowStartStr)
+      if (!eventDates.includes(windowEndStr)) eventDates.push(windowEndStr)
+      eventDates.sort()
+      return eventDates
+    })()
+
+    const arrAsOf = (date: string) =>
+      sorted
+        .filter((c) => isClientActiveAsOf(c, date))
+        .reduce((sum, c) => sum + c.mrr * 12, 0)
+
+    const rawActual = chartDates.map((date) => {
+      let signedUpOnDate: Client[]
+      let cancelledOnDate: Client[]
+      if (useMonthlyBuckets) {
+        const { start, end } = monthBoundsForEnd(date)
+        signedUpOnDate = sorted.filter((c) => {
+          const d = c.since_date as string
+          return d >= start && d <= end
+        })
+        cancelledOnDate = sorted.filter((c) => {
+          const d = c.cancel_date as string | null
+          return d && d >= start && d <= end
+        })
+      } else if (useWeeklyBuckets) {
+        // Calendar Mon–end week so adjacent points never share the same days
+        const { start, end } = weekBoundsForChartDate(date)
+        signedUpOnDate = sorted.filter((c) => {
+          const d = c.since_date as string
+          return d >= start && d <= end
+        })
+        cancelledOnDate = sorted.filter((c) => {
+          const d = c.cancel_date as string | null
+          return d && d >= start && d <= end
+        })
+      } else {
+        signedUpOnDate = sorted.filter((c) => (c.since_date as string) === date)
+        cancelledOnDate = sorted.filter((c) => c.cancel_date === date)
+      }
+
       return {
         date,
-        arr: sorted
-          .filter((c) => isClientActiveAsOf(c, date))
-          .reduce((sum, c) => sum + clientRevenueContribution(c, date), 0),
+        // Running ARR (MRR × 12) for clients active as of this date
+        arr: arrAsOf(date),
         clientNames: [
           ...signedUpOnDate.map((c) => c.name),
           ...cancelledOnDate.map((c) => `− ${c.name}`),
         ],
+        // Per-client hover amounts are MRR (not ARR / not lifetime billed)
         clientArrs: [
-          ...signedUpOnDate.map((c) => ({ name: c.name, arr: contribution(c, date) })),
-          ...cancelledOnDate.map((c) => ({
-            name: `− ${c.name}`,
-            arr: -contribution(c, date),
-          })),
+          ...signedUpOnDate.map((c) => ({ name: c.name, arr: c.mrr })),
+          ...cancelledOnDate.map((c) => ({ name: `− ${c.name}`, arr: -c.mrr })),
         ],
       }
     })
+
+    const actual = useBuckets ? smoothSeriesArr(rawActual) : rawActual
 
     const currentArr = actual[actual.length - 1]?.arr ?? 0
 
@@ -376,12 +554,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     const growthWindowDays = range === 'day' ? 7 : range === 'week' ? 14 : range === 'month' ? 60 : 56
     const growthWinStart = new Date(windowEndCapped)
     growthWinStart.setDate(growthWinStart.getDate() - growthWindowDays)
-    const arrAtStart = sorted
-      .filter((c) => isClientActiveAsOf(c, toISO(growthWinStart)))
-      .reduce((sum, c) => sum + clientRevenueContribution(c, toISO(growthWinStart)), 0)
-    const arrAtEnd = sorted
-      .filter((c) => isClientActiveAsOf(c, windowEndStr))
-      .reduce((sum, c) => sum + clientRevenueContribution(c, windowEndStr), 0)
+    const arrAtStart = arrAsOf(toISO(growthWinStart))
+    const arrAtEnd = arrAsOf(windowEndStr)
     const weeklyGrowth = (arrAtEnd - arrAtStart) / (growthWindowDays / 7)
 
     // Sparse projection points (fewer for shorter views)
@@ -396,8 +570,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     return { actual, projected }
   }, [clients, range, offset, bounds])
 
-  const fmtArrTick = (v: number) =>
-    v === 0 ? '$0' : v >= 1000 ? `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `$${v}`
+  const fmtArrTick = (v: number) => {
+    const abs = Math.abs(v)
+    const body = abs === 0 ? '$0' : abs >= 1000 ? `$${(abs / 1000).toFixed(abs % 1000 === 0 ? 0 : 1)}k` : `$${abs}`
+    return v < 0 ? `−${body}` : body
+  }
 
   // Show rate helpers — derived from calendar table (all time)
   function repShowRate(repId: string, type: 'disc' | 'demo') {
@@ -453,6 +630,17 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     }
     return 0
   }), [clients, clientSort, reps])
+
+  const clientTotals = useMemo(() => {
+    const today = toISO(new Date())
+    return clients.reduce(
+      (acc, c) => ({
+        mrr: acc.mrr + c.mrr,
+        revenue: acc.revenue + fullMonthsActive(c.since_date as string, today, c.cancel_date) * c.mrr,
+      }),
+      { mrr: 0, revenue: 0 },
+    )
+  }, [clients])
 
   const clientCols: { label: string; key: ClientSortKey; left?: boolean }[] = [
     { label: 'Client',    key: 'name',       left: true },
@@ -545,10 +733,12 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               const repsCount = reps.length || 1
               const weeklyTargets = tgt || { dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 }
 
-              // Discovery here reflects ATTENDED disc calls (from the calendar),
-              // not booked disc, for the selected period.
+              // Disc + Demo reflect ATTENDED calendar meetings for the period, not booked.
               const teamAttendedDisc = periodShowRates
                 .filter((r) => r.activity_type === 'disc')
+                .reduce((sum, r) => sum + r.attended, 0)
+              const teamAttendedDemo = periodShowRates
+                .filter((r) => r.activity_type === 'demo')
                 .reduce((sum, r) => sum + r.attended, 0)
 
               const metrics = [
@@ -570,17 +760,17 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 },
                 {
                   key: 'disc',
-                  label: 'Disc attended',
-                  short: 'Disc ✓',
+                  label: 'Disc ATT',
+                  short: 'Disc ATT',
                   value: teamAttendedDisc,
                   color: '#FFB800',
                   target: (weeklyTargets.disc ?? 20) * mult * repsCount,
                 },
                 {
                   key: 'demo',
-                  label: 'Demo',
-                  short: 'Demos',
-                  value: t.demo ?? 0,
+                  label: 'Demo ATT',
+                  short: 'Demo ATT',
+                  value: teamAttendedDemo,
                   color: '#FF3D9A',
                   target: (weeklyTargets.demo ?? 7) * mult * repsCount,
                 },
@@ -594,7 +784,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 },
               ]
 
-              return <ActivityPipelineCard title="Conversion goals" metrics={metrics} showConversionRates={true} />
+              return <ActivityPipelineCard title="Conversion goals" metrics={metrics} showConversionRates={false} />
             })()}
           </Card>
         </div>
@@ -630,21 +820,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
         <Card>
           <SectionTitle right={
-            <div className="flex items-center gap-4">
-              <div className="flex gap-3.5 text-[11px] text-ink-2">
-                {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FFB800', l: 'Disc' }, { c: '#FF3D9A', l: 'Demos' }].map((x) => (
-                  <span key={x.l} className="inline-flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ background: x.c }} />{x.l}
-                  </span>
-                ))}
-              </div>
-              <Segmented
-                value={trendGranularity}
-                onChange={(v) => setTrendGranularity(v as 'week' | 'day')}
-                options={[{ value: 'week', label: 'Weekly' }, { value: 'day', label: 'Daily' }]}
-              />
+            <div className="flex gap-3.5 text-[11px] text-ink-2">
+              {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FFB800', l: 'Disc' }, { c: '#FF3D9A', l: 'Demos' }].map((x) => (
+                <span key={x.l} className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ background: x.c }} />{x.l}
+                </span>
+              ))}
             </div>
-          }>{trendGranularity === 'week' ? 'Weekly trend · last 6 weeks' : 'Daily trend · last 30 days'}</SectionTitle>
+          }>{trendWindow.title}</SectionTitle>
           <LineChart
             labels={trendData.map((w) => w.label)}
             series={[
@@ -1370,7 +1553,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       <Card padding={0}>
         <div className="px-5 py-4 border-b border-line">
           <div className="text-[13px] font-semibold">Client breakdown</div>
-          <div className="text-[11px] text-ink-3 mt-0.5">Use ··· on a row to mark a client as canceled</div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[12.5px]">
@@ -1461,6 +1643,18 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                 </tr>
               )}
             </tbody>
+            {clients.length > 0 && (
+              <tfoot>
+                <tr className="border-t border-line" style={{ background: 'var(--bg-2)' }}>
+                  <td className="px-3.5 py-3 font-bold text-ink" colSpan={3}>
+                    Total · {clients.length} clients
+                  </td>
+                  <td className="mono px-3.5 py-3 text-right font-bold text-ink-1">{fmtMoney(clientTotals.mrr)}</td>
+                  <td className="mono px-3.5 py-3 text-right font-bold text-mint">{fmtMoney(clientTotals.revenue)}</td>
+                  <td className="px-3.5 py-3" colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </Card>
