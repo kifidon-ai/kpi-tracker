@@ -13,7 +13,7 @@ import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
 import { LineChart, Speedometer, ArrGrowthChart } from './charts'
 import { ActivityPipelineCard } from './ActivityPipelineCard'
 import { EditClientModal } from './EditClientModal'
-import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getShowRatesAction, getAttendedConversionsAction, updateClientCancelDateAction } from '@/app/actions'
+import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getDiscShowRateByDowAction, getShowRatesAction, getAttendedConversionsAction, updateClientCancelDateAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -196,6 +196,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const [repTotals, setRepTotals]   = useState<Record<string, Record<string, number>>>({})
   const [trendRows, setTrendRows]   = useState<{ date: string; metric_key: string; total: number }[]>([])
   const [discByHour, setDiscByHour] = useState<{ hour: number; total: number }[]>([])
+  const [showByDow, setShowByDow] = useState<{ activity_type: string; dow: number; total: number; attended: number }[]>([])
   const [showRates, setShowRates]   = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [periodShowRates, setPeriodShowRates] = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [attendedConversions, setAttendedConversions] = useState<Record<string, {
@@ -337,6 +338,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
   useEffect(() => {
     getDiscByHourAction().then(setDiscByHour)
+  }, [])
+
+  useEffect(() => {
+    getDiscShowRateByDowAction().then(setShowByDow)
   }, [])
 
   useEffect(() => {
@@ -1423,6 +1428,148 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             )}
           </Card>
         )
+      })()}
+
+      {(() => {
+        // Postgres DOW: 0=Sun … 6=Sat — display Mon→Fri
+        const DAYS = [
+          { dow: 1, label: 'Mon' },
+          { dow: 2, label: 'Tue' },
+          { dow: 3, label: 'Wed' },
+          { dow: 4, label: 'Thu' },
+          { dow: 5, label: 'Fri' },
+        ]
+        const todayDow = new Date().getDay()
+        const charts = [
+          { key: 'disc', title: 'Disc show rate by day', empty: 'No discovery show data yet', baseAccent: '#FFB800' },
+          { key: 'demo', title: 'Demo show rate by day', empty: 'No demo show data yet', baseAccent: '#FF3D9A' },
+        ] as const
+
+        return charts.map(({ key, title, empty, baseAccent }) => {
+          const rows = showByDow.filter((d) => d.activity_type === key)
+          const dowData = DAYS.map(({ dow, label }) => {
+            const row = rows.find((d) => d.dow === dow)
+            const total = row?.total ?? 0
+            const attended = row?.attended ?? 0
+            const rateExact = total > 0 ? (attended / total) * 100 : null
+            const rate = rateExact !== null ? Math.round(rateExact) : null
+            return { dow, label, total, attended, rate, rateExact }
+          })
+          const withData = dowData.filter((d) => d.rate !== null)
+          const peak = withData.reduce(
+            (best, d) => (d.rate !== null && (best.rate === null || d.rate > best.rate) ? d : best),
+            withData[0] ?? { dow: -1, label: '', total: 0, attended: 0, rate: null as number | null, rateExact: null as number | null },
+          )
+          const maxVolume = Math.max(...dowData.map((d) => d.total), 1)
+          const teamTotal = dowData.reduce((sum, d) => sum + d.total, 0)
+          const teamAttended = dowData.reduce((sum, d) => sum + d.attended, 0)
+          const teamRate = teamTotal > 0 ? Math.round((teamAttended / teamTotal) * 100) : null
+          const hasAny = rows.some((d) => d.total > 0)
+
+          return (
+            <Card key={key}>
+              <SectionTitle right={
+                <span className="text-[10px] text-ink-3 font-normal normal-case tracking-normal">all time</span>
+              }>{title}</SectionTitle>
+
+              {!hasAny ? (
+                <div className="flex items-center justify-center h-44 text-ink-3 text-[12px]">{empty}</div>
+              ) : (
+                <div className="mt-4">
+                  <div className="flex items-center gap-2 px-1 mb-2 text-[9px] text-ink-3">
+                    <span className="w-8 shrink-0" />
+                    <div className="flex-1 relative h-3">
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-line" />
+                      <span className="absolute left-0 top-0">0%</span>
+                      <span className="absolute left-1/2 -translate-x-1/2 top-0">50%</span>
+                      <span className="absolute right-0 top-0">100%</span>
+                    </div>
+                    <span className="w-[100px] shrink-0" />
+                  </div>
+                  <div className="flex flex-col gap-2.5 px-1 pt-5">
+                    {dowData.map(({ dow, label, total, attended, rate, rateExact }) => {
+                      const isPeak = peak.rate !== null && dow === peak.dow && peak.rate > 0
+                      const isToday = dow === todayDow
+                      const rateW = rateExact !== null ? Math.min(rateExact, 100) : 0
+                      const volRatio = total / maxVolume
+                      const barH = total > 0 ? 6 + volRatio * 10 : 4
+                      const barOpacity = total > 0 ? 0.35 + volRatio * 0.55 : 0.2
+                      const accent = isToday ? '#00D4FF' : isPeak ? '#00E5A0' : baseAccent
+                      const track = isToday ? '#00D4FF22' : isPeak ? '#00E5A022' : `${baseAccent}22`
+                      const exactLabel = rateExact !== null
+                        ? `${rateExact % 1 === 0 ? rateExact.toFixed(0) : rateExact.toFixed(1)}% · ${attended} of ${total} attended`
+                        : null
+
+                      return (
+                        <div key={dow} className="flex items-center gap-2 group relative">
+                          <div
+                            className="mono text-[10px] font-bold w-8 shrink-0"
+                            style={{ color: isToday ? '#00D4FF' : isPeak ? '#00E5A0' : '#8A93A8' }}
+                          >
+                            {label}
+                          </div>
+                          <div className="flex-1 relative rounded-full" style={{ height: barH + 6, background: track }}>
+                            {exactLabel && (
+                              <div
+                                className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-7 z-10 whitespace-nowrap rounded px-2 py-1 mono text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                                style={{
+                                  color: accent,
+                                  background: 'var(--card-top)',
+                                  border: '1px solid var(--line)',
+                                }}
+                              >
+                                {exactLabel}
+                              </div>
+                            )}
+                            <div
+                              className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full transition-all duration-300"
+                              style={{
+                                width: `${rateW}%`,
+                                height: barH,
+                                minWidth: rate !== null ? 4 : 0,
+                                background: rate !== null
+                                  ? `linear-gradient(90deg, ${accent}99, ${accent})`
+                                  : 'transparent',
+                                opacity: barOpacity,
+                              }}
+                            />
+                          </div>
+                          <div className="w-[100px] shrink-0 text-right leading-tight">
+                            <div className="mono text-[16px] font-bold leading-none" style={{ color: rate !== null ? accent : '#3A4460' }}>
+                              {rate !== null ? `${rate}%` : '—'}
+                            </div>
+                            <div className="mono text-[10px] text-ink-3 mt-1">
+                              {total > 0 ? `${attended}/${total}` : 'no data'}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-ink-2">Total:</span>
+                      <span className="mono text-[15px] font-bold text-ink">
+                        {teamRate !== null ? `${teamRate}%` : '—'}
+                      </span>
+                      <span className="text-ink-3">
+                        ({teamAttended}/{teamTotal} attended)
+                      </span>
+                    </div>
+                    {peak.rate !== null && peak.total > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-mint shrink-0" />
+                        <span className="text-ink-2">Best show day:</span>
+                        <span className="mono font-bold text-ink">{peak.label}</span>
+                        <span className="text-ink-3">— {peak.rate}% ({peak.attended}/{peak.total})</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </Card>
+          )
+        })
       })()}
 
       {/* All weeks modal */}

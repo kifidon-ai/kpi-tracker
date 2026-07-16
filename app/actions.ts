@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar, targets } from '@/db/schema'
-import { eq, and, gte, lte, desc, sql, asc, lt, ne, or } from 'drizzle-orm'
+import { eq, and, gte, lte, desc, sql, asc, lt, ne, or, inArray } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
@@ -142,6 +142,27 @@ export async function getDiscByHourAction() {
     .groupBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
     .orderBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
   return rows
+}
+
+/** Disc/demo show rate (attended / booked) by day of week. DOW: 0=Sun … 6=Sat. */
+export async function getDiscShowRateByDowAction() {
+  try {
+    const rows = await db
+      .select({
+        activity_type: calendar.activity_type,
+        dow:           sql<number>`extract(dow from ${calendar.scheduled_date})::int`,
+        total:         sql<number>`cast(count(*) as int)`,
+        attended:      sql<number>`cast(sum(case when ${calendar.status} = 'attended' then 1 else 0 end) as int)`,
+      })
+      .from(calendar)
+      .where(and(
+        inArray(calendar.activity_type, ['disc', 'demo']),
+        lt(calendar.scheduled_date, sql`CURRENT_DATE`),
+      ))
+      .groupBy(calendar.activity_type, sql`extract(dow from ${calendar.scheduled_date})::int`)
+      .orderBy(calendar.activity_type, sql`extract(dow from ${calendar.scheduled_date})::int`)
+    return rows
+  } catch { return [] }
 }
 
 export async function logClosedDealAction(data: {
