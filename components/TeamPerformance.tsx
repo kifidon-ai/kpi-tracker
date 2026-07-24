@@ -9,7 +9,7 @@ import {
   isClientActiveAsOf,
   fullMonthsActive,
 } from '@/lib/helpers'
-import { Card, Segmented, Pill, SectionTitle, KPI } from './ui/primitives'
+import { Card, Segmented, Pill, SectionTitle, KPI, Delta } from './ui/primitives'
 import { LineChart, Speedometer, ArrGrowthChart } from './charts'
 import { ActivityPipelineCard } from './ActivityPipelineCard'
 import { EditClientModal } from './EditClientModal'
@@ -199,6 +199,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const [showByDow, setShowByDow] = useState<{ activity_type: string; dow: number; total: number; attended: number }[]>([])
   const [showRates, setShowRates]   = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [periodShowRates, setPeriodShowRates] = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
+  const [prevPeriodShowRates, setPrevPeriodShowRates] = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [attendedConversions, setAttendedConversions] = useState<Record<string, {
     discBooked: number
     discAttended: number
@@ -251,6 +252,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
     if (range === 'all' || !prevBounds) {
       setPrevTotals({})
+      setPrevPeriodShowRates([])
     } else {
       const ps = toISO(prevBounds.start)
       const pe = toISO(prevBounds.end)
@@ -261,6 +263,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           Object.entries(m).forEach(([k, v]) => { merged[k] = (merged[k] ?? 0) + v })
         })
         setPrevTotals(merged)
+      })
+      getShowRatesAction(ps, pe).then((res) => {
+        if (!cancelled) setPrevPeriodShowRates(res)
       })
     }
 
@@ -281,6 +286,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   )
 
   const closedCount = filteredClients.length
+  const prevClosedCount = useMemo(
+    () => clients.filter((c) => c.since_date && inBoundsDate(c.since_date, prevBounds)).length,
+    [clients, prevBounds],
+  )
 
   const allTimeRepTotals = useMemo(() => {
     const rt: Record<string, Record<string, number>> = {}
@@ -603,6 +612,18 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const teamDiscRate = teamDiscShow.total ? Math.round(teamDiscShow.attended / teamDiscShow.total * 100) : null
   const teamDemoRate = teamDemoBook.attended ? Math.round(teamDemoBook.converted / teamDemoBook.attended * 100) : null
 
+  const periodDiscShow = periodShowRates.filter((r) => r.activity_type === 'disc').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
+  const prevDiscShow   = prevPeriodShowRates.filter((r) => r.activity_type === 'disc').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
+  const periodDiscRate = periodDiscShow.total ? Math.round(periodDiscShow.attended / periodDiscShow.total * 100) : null
+  const prevDiscRate   = prevDiscShow.total   ? Math.round(prevDiscShow.attended   / prevDiscShow.total   * 100) : null
+  const discRateDelta  = periodDiscRate !== null && prevDiscRate !== null ? periodDiscRate - prevDiscRate : null
+
+  const periodDemoShow = periodShowRates.filter((r) => r.activity_type === 'demo').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
+  const prevDemoShow   = prevPeriodShowRates.filter((r) => r.activity_type === 'demo').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
+  const periodDemoRate = periodDemoShow.total ? Math.round(periodDemoShow.attended / periodDemoShow.total * 100) : null
+  const prevDemoRate   = prevDemoShow.total   ? Math.round(prevDemoShow.attended   / prevDemoShow.total   * 100) : null
+  const demoRateDelta  = periodDemoRate !== null && prevDemoRate !== null ? periodDemoRate - prevDemoRate : null
+
   const t = totals
   const pt = prevTotals
 
@@ -715,18 +736,20 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             <Card><KPI label="Conversations" value={t.dm_conv ?? 0} target={tgt?.dm_conv} color="#8B5CF6" formatter={fmtNum} delta={delta(t.dm_conv ?? 0, pt.dm_conv ?? 0)} /></Card>
             <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
             <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
-            <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={null} /></Card>
+            <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
             <Card>
               <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FFB800] mb-1">Disc show rate</div>
               <div className="mono text-[28px] font-extrabold text-ink leading-none">
                 {teamDiscRate !== null ? `${teamDiscRate}%` : '—'}
               </div>
+              {discRateDelta !== null && <div className="mt-1"><Delta value={discRateDelta} /></div>}
             </Card>
             <Card>
-              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo book rate</div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo show rate</div>
               <div className="mono text-[28px] font-extrabold text-ink leading-none">
                 {teamDemoRate !== null ? `${teamDemoRate}%` : '—'}
               </div>
+              {demoRateDelta !== null && <div className="mt-1"><Delta value={demoRateDelta} /></div>}
             </Card>
           </div>
 

@@ -255,27 +255,33 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
       {zones.map((z) => (
         <path key={z.from} d={arcD(z.from, z.to)} fill="none" stroke={z.c + '55'} strokeWidth={sw} strokeLinecap="butt" />
       ))}
-      {/* Multi-colored progress arc — each zone fills its own color */}
+      {/* Multi-colored progress arc — strokeDasharray animates smoothly */}
       {zones.map((z) => {
-        if (clamp <= z.from) return null
-        const fillTo = Math.min(clamp, z.to)
+        const totalLen = ((z.to - z.from) / max) * Math.PI * r
+        const filledLen = clamp <= z.from ? 0 : clamp >= z.to ? totalLen : ((clamp - z.from) / max) * Math.PI * r
         return (
           <path
             key={z.from}
-            d={arcD(z.from, fillTo)}
+            d={arcD(z.from, z.to)}
             fill="none"
             stroke={z.c}
             strokeWidth={sw}
             strokeLinecap="butt"
             opacity={0.9}
+            strokeDasharray={`${filledLen.toFixed(2)} ${(totalLen + 1).toFixed(2)}`}
+            style={{ transition: 'stroke-dasharray 700ms cubic-bezier(.25,.8,.25,1)' }}
           />
         )
       })}
-      {/* Round cap only at the leading edge tip */}
-      {clamp > 0 && (() => {
-        const [tipX, tipY] = pt(mathDeg(clamp), r)
-        return <circle cx={tipX.toFixed(2)} cy={tipY.toFixed(2)} r={sw / 2} fill={zoneColor} opacity={0.9} />
-      })()}
+      {/* Tip circle rotates along the arc so it can CSS-transition */}
+      {clamp > 0 && (
+        <g
+          transform={`rotate(${(clamp / max) * 180}, ${cx}, ${cy})`}
+          style={{ transition: 'transform 700ms cubic-bezier(.25,.8,.25,1)' }}
+        >
+          <circle cx={cx - r} cy={cy} r={sw / 2} fill={zoneColor} opacity={0.9} style={{ transition: 'fill 700ms ease' }} />
+        </g>
+      )}
       {/* All ticks outside the arc — major milestones bigger and zone-colored, minor ones dim */}
       {Array.from({ length: 11 }, (_, i) => i * 10).map((m) => {
         const isMajor = milestones.includes(m)
@@ -322,7 +328,7 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
         {/* Lume dot near tip */}
         <circle
           cx={(cx - r * 0.68).toFixed(1)} cy={cy.toFixed(1)} r="3"
-          fill="#FFB800" opacity="0.9"
+          fill={zoneColor} opacity="0.9"
         />
       </g>
       {/* Hub */}
