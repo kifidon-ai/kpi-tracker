@@ -212,8 +212,8 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
   const cx = size / 2
   const r = size / 2 - 16        // radius: leaves 16px margin each side for the track
   const sw = 10                   // track stroke width
-  const cy = r + sw / 2 + 16     // center: 16px clearance above arc top
-  const svgH = cy + 56            // room for value text below
+  const cy = r + sw / 2 + 34     // center: extra clearance for outside ticks
+  const svgH = cy + 18            // just enough for hub circle + small margin
 
   const toRad = (deg: number) => (deg * Math.PI) / 180
   // 0 → left (180°), max → right (0°)
@@ -247,58 +247,87 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
   const labelR = r - sw / 2 - 16
 
   return (
-    <svg width={size} height={svgH} viewBox={`0 0 ${size} ${svgH}`} style={{ display: 'block', margin: '0 auto' }}>
+    <svg width="100%" viewBox={`-50 0 ${size + 100} ${svgH}`} style={{ display: 'block' }}>
       {/* Background track */}
       <path d={`M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 0 1 ${(cx + r).toFixed(2)} ${cy.toFixed(2)}`}
-        fill="none" stroke="#1A2035" strokeWidth={sw} strokeLinecap="round" />
-      {/* Faint zone colouring on the track */}
+        fill="none" stroke="var(--line)" strokeWidth={sw} strokeLinecap="round" />
+      {/* Zone colour bands on the track */}
       {zones.map((z) => (
-        <path key={z.from} d={arcD(z.from, z.to)} fill="none" stroke={z.c + '28'} strokeWidth={sw} strokeLinecap="butt" />
+        <path key={z.from} d={arcD(z.from, z.to)} fill="none" stroke={z.c + '55'} strokeWidth={sw} strokeLinecap="butt" />
       ))}
-      {/* Progress arc — uses stroke-dasharray on the fixed semicircle so CSS transition works */}
-      <path
-        d={`M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 0 1 ${(cx + r).toFixed(2)} ${cy.toFixed(2)}`}
-        fill="none"
-        stroke={zoneColor}
-        strokeWidth={sw}
-        strokeLinecap="round"
-        opacity={0.9}
-        strokeDasharray={`${(clamp / max) * Math.PI * r} ${Math.PI * r}`}
-        style={{ transition: 'stroke-dasharray 700ms cubic-bezier(.25,.8,.25,1), stroke 700ms ease' }}
-      />
-      {/* Milestone ticks + inside labels */}
-      {milestones.map((m) => {
+      {/* Multi-colored progress arc — each zone fills its own color */}
+      {zones.map((z) => {
+        if (clamp <= z.from) return null
+        const fillTo = Math.min(clamp, z.to)
+        return (
+          <path
+            key={z.from}
+            d={arcD(z.from, fillTo)}
+            fill="none"
+            stroke={z.c}
+            strokeWidth={sw}
+            strokeLinecap="butt"
+            opacity={0.9}
+          />
+        )
+      })}
+      {/* Round cap only at the leading edge tip */}
+      {clamp > 0 && (() => {
+        const [tipX, tipY] = pt(mathDeg(clamp), r)
+        return <circle cx={tipX.toFixed(2)} cy={tipY.toFixed(2)} r={sw / 2} fill={zoneColor} opacity={0.9} />
+      })()}
+      {/* All ticks outside the arc — major milestones bigger and zone-colored, minor ones dim */}
+      {Array.from({ length: 11 }, (_, i) => i * 10).map((m) => {
+        const isMajor = milestones.includes(m)
+        const zoneC = isMajor ? (zones.find((z) => z.from === m)?.c ?? 'var(--ink)') : null
         const deg = mathDeg(m)
-        const [t1x, t1y] = pt(deg, r + sw / 2 + 1)
-        const [t2x, t2y] = pt(deg, r - sw / 2 - 1)
-        const [lx, ly] = pt(deg, labelR)
-        const passed = m <= clamp
+        const tickLen = isMajor ? 16 : 5
+        const [t1x, t1y] = pt(deg, r + sw / 2 + 2)
+        const [t2x, t2y] = pt(deg, r + sw / 2 + 2 + tickLen)
+        const [lx, ly] = pt(deg, r + sw / 2 + 2 + tickLen + 14)
         return (
           <g key={m}>
             <line x1={t1x.toFixed(1)} y1={t1y.toFixed(1)} x2={t2x.toFixed(1)} y2={t2y.toFixed(1)}
-              stroke={passed ? '#ffffff55' : '#2A3350'} strokeWidth="1.5" />
-            <text x={lx.toFixed(1)} y={(ly + 3.5).toFixed(1)} fill={passed ? '#5A6685' : '#2A3350'}
-              fontSize="9" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{m}</text>
+              stroke={isMajor ? zoneC! : 'var(--ink-2)'}
+              strokeWidth={isMajor ? 3 : 1.5} />
+            <text x={lx.toFixed(1)} y={(ly + 4).toFixed(1)}
+              fill={isMajor ? zoneC! : 'var(--ink-3)'}
+              fontSize={isMajor ? 16 : 8}
+              fontWeight={isMajor ? '800' : '400'}
+              textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{m}</text>
           </g>
         )
       })}
-      {/* Needle — rotates around center; 0 → left (180°), max → right (0°) */}
+      {/* Value — sits inside the arc above center */}
+      <text x={cx} y={cy - r * 0.48} fill="var(--ink)" fontSize="52" fontWeight="700" textAnchor="middle" dominantBaseline="middle" fontFamily="Inter, system-ui, sans-serif">{value}</text>
+      {/* Needle — shorter, sits above center hub */}
       <g
         transform={`rotate(${(clamp / max) * 180} ${cx.toFixed(1)} ${cy.toFixed(1)})`}
         style={{ transition: 'transform 700ms cubic-bezier(.25,.8,.25,1)' }}
       >
-        <line
-          x1={cx.toFixed(1)} y1={cy.toFixed(1)}
-          x2={(cx - r * 0.72).toFixed(1)} y2={cy.toFixed(1)}
-          stroke="#D8DEEF" strokeWidth="2" strokeLinecap="round"
+        {/* Omega-style needle: long thin front tapering to a point, wider belly near hub, small counterweight */}
+        <polygon
+          points={[
+            `${(cx - r * 0.84).toFixed(1)},${cy.toFixed(1)}`,
+            `${(cx - r * 0.18).toFixed(1)},${(cy - 3).toFixed(1)}`,
+            `${(cx - r * 0.04).toFixed(1)},${(cy - 6).toFixed(1)}`,
+            `${(cx + r * 0.11).toFixed(1)},${(cy - 2.5).toFixed(1)}`,
+            `${(cx + r * 0.14).toFixed(1)},${cy.toFixed(1)}`,
+            `${(cx + r * 0.11).toFixed(1)},${(cy + 2.5).toFixed(1)}`,
+            `${(cx - r * 0.04).toFixed(1)},${(cy + 6).toFixed(1)}`,
+            `${(cx - r * 0.18).toFixed(1)},${(cy + 3).toFixed(1)}`,
+          ].join(' ')}
+          fill="var(--ink)"
+        />
+        {/* Lume dot near tip */}
+        <circle
+          cx={(cx - r * 0.68).toFixed(1)} cy={cy.toFixed(1)} r="3"
+          fill="#FFB800" opacity="0.9"
         />
       </g>
       {/* Hub */}
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={zoneColor} style={{ transition: 'fill 700ms ease' }} />
-      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill="#0A0E1A" />
-      {/* Value */}
-      <text x={cx} y={cy + 24} fill="#D8DEEF" fontSize="26" fontWeight="600" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{value}</text>
-      <text x={cx} y={cy + 40} fill="#5A6685" fontSize="10" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">active clients</text>
+      <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill="var(--bg-1)" />
     </svg>
   )
 }

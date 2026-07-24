@@ -799,7 +799,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold self-start mb-1">
             {range === 'all' ? 'Active clients' : `Active clients · ${label.toLowerCase()}`}
           </div>
-          <Speedometer value={periodClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={220} />
+          <Speedometer value={periodClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={310} />
           <div className="w-full border-t border-line mt-4 pt-4">
             <div className="mx-auto w-1/2 flex flex-col items-center justify-center border-b border-line mb-2">
               <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold mb-1.5">Annual Recurring Revenue</div>
