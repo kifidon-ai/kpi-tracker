@@ -9,11 +9,10 @@ import {
   isClientActiveAsOf,
   fullMonthsActive,
 } from '@/lib/helpers'
-import { Card, Segmented, Pill, SectionTitle, KPI, Delta } from './ui/primitives'
-import { LineChart, Speedometer, ArrGrowthChart } from './charts'
-import { ActivityPipelineCard } from './ActivityPipelineCard'
+import { Card, Segmented, Pill, SectionTitle } from './ui/primitives'
+import { BarChart, AreaTrendChart, Speedometer, ArrGrowthChart } from './charts'
 import { EditClientModal } from './EditClientModal'
-import { getActivityCountsAction, getTrendAction, getDiscByHourAction, getDiscShowRateByDowAction, getShowRatesAction, getAttendedConversionsAction, updateClientCancelDateAction } from '@/app/actions'
+import { getActivityCountsAction, getTrendAction, getHourlyTrendAction, getAttendanceTrendAction, getDiscByHourAction, getDiscShowRateByDowAction, getShowRatesAction, getAttendedConversionsAction, updateClientCancelDateAction } from '@/app/actions'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -27,14 +26,40 @@ interface TeamPerformanceProps {
 
 type Range = 'day' | 'week' | 'month' | 'all'
 
+function isWeekend(d: Date): boolean {
+  const dow = d.getDay()
+  return dow === 0 || dow === 6
+}
+
+/** Most recent weekday on or before `d` (Sat/Sun → Friday). */
+function lastWeekday(d: Date): Date {
+  const out = new Date(d)
+  out.setHours(0, 0, 0, 0)
+  while (isWeekend(out)) out.setDate(out.getDate() - 1)
+  return out
+}
+
+/** Move `delta` weekdays from `d` (negative = past). */
+function addWeekdays(d: Date, delta: number): Date {
+  const out = new Date(d)
+  out.setHours(0, 0, 0, 0)
+  let remaining = Math.abs(delta)
+  const step = delta < 0 ? -1 : 1
+  while (remaining > 0) {
+    out.setDate(out.getDate() + step)
+    if (!isWeekend(out)) remaining--
+  }
+  return out
+}
+
 function getPeriodBounds(range: Range, offset: number): { start: Date; end: Date } | null {
   if (range === 'all') return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
   if (range === 'day') {
-    const d = new Date(today)
-    d.setDate(today.getDate() - offset)
+    // Weekend → last Friday; offset counts weekdays only (Fri ← → Mon)
+    const d = addWeekdays(lastWeekday(today), -offset)
     return { start: d, end: d }
   }
   if (range === 'week') {
@@ -44,15 +69,17 @@ function getPeriodBounds(range: Range, offset: number): { start: Date; end: Date
     thisMonday.setDate(today.getDate() - daysFromMonday)
     const start = new Date(thisMonday)
     start.setDate(thisMonday.getDate() - offset * 7)
-    const end = offset === 0 ? new Date(today) : new Date(start)
-    if (offset > 0) end.setDate(start.getDate() + 6)
+    // Week is Mon–Fri; current week caps at today (or Friday if weekend)
+    const friday = new Date(start)
+    friday.setDate(start.getDate() + 4)
+    const end = offset === 0 ? lastWeekday(today) : friday
     return { start, end }
   }
   // month
   const start = new Date(today.getFullYear(), today.getMonth() - offset, 1)
   const end = offset === 0
-    ? new Date(today)
-    : new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
+    ? lastWeekday(today)
+    : lastWeekday(new Date(today.getFullYear(), today.getMonth() - offset + 1, 0))
   return { start, end }
 }
 
@@ -73,7 +100,7 @@ function mondayOf(d: Date): Date {
   return copy
 }
 
-/** Sunday-aligned week ends (or range end) for each week overlapping [start, end]. */
+/** Friday-aligned week ends (or range end) for each week overlapping [start, end]. */
 function bucketEndDatesInRange(start: Date, end: Date, stepDays = 7): string[] {
   const out: string[] = []
   const endCap = new Date(end)
@@ -82,8 +109,8 @@ function bucketEndDatesInRange(start: Date, end: Date, stepDays = 7): string[] {
 
   for (let cursor = new Date(monday); cursor <= endCap; cursor.setDate(cursor.getDate() + stepDays)) {
     const bucketEnd = new Date(cursor)
-    bucketEnd.setDate(cursor.getDate() + stepDays - 1)
-    const asOf = bucketEnd > endCap ? endCap : bucketEnd
+    bucketEnd.setDate(cursor.getDate() + 4) // Friday
+    const asOf = bucketEnd > endCap ? lastWeekday(endCap) : bucketEnd
     const iso = toISO(asOf)
     if (!out.includes(iso)) out.push(iso)
   }
@@ -109,11 +136,11 @@ function monthEndDatesInRange(start: Date, end: Date): string[] {
   return out
 }
 
-/** Calendar week containing `dateISO`, capped at that date (Mon → date). Non-overlapping across weeks. */
+/** Calendar week containing `dateISO`, capped at that date (Mon → date, weekends excluded from end). */
 function weekBoundsForChartDate(dateISO: string): { start: string; end: string } {
-  const end = new Date(dateISO + 'T00:00')
+  const end = lastWeekday(new Date(dateISO + 'T00:00'))
   const start = mondayOf(end)
-  return { start: toISO(start), end: dateISO }
+  return { start: toISO(start), end: toISO(end) }
 }
 
 function monthBoundsForEnd(monthEndISO: string): { start: string; end: string } {
@@ -144,8 +171,12 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
   if (range === 'all') return 'all time'
   if (!b) return ''
   if (range === 'day') {
-    if (offset === 0) return 'Today'
-    if (offset === 1) return 'Yesterday'
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (toISO(b.start) === toISO(today)) return 'Today'
+    const yesterday = new Date(today)
+    yesterday.setDate(today.getDate() - 1)
+    if (toISO(b.start) === toISO(yesterday)) return 'Yesterday'
     return b.start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   }
   if (range === 'week') {
@@ -158,7 +189,7 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
   return b.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
-export function TeamPerformance({ reps: allReps, clients, feed, targets, initialMrr, activeClientCount, onClientUpdated }: TeamPerformanceProps) {
+export function TeamPerformance({ reps: allReps, clients, feed, targets: _targets, initialMrr, activeClientCount, onClientUpdated }: TeamPerformanceProps) {
   const [mounted, setMounted] = useState(false)
   const [showAllWeeksModal, setShowAllWeeksModal] = useState(false)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
@@ -166,6 +197,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [savingClient, setSavingClient] = useState(false)
   const [openClientMenu, setOpenClientMenu] = useState<string | null>(null)
+  const [pipelineMetric, setPipelineMetric] = useState<
+    'dials' | 'vm' | 'conv' | 'disc' | 'disc_att' | 'demo' | 'demo_att' | 'closed' | null
+  >('dials')
+  const [pipelineChartMode, setPipelineChartMode] = useState<'bar' | 'trend'>('bar')
   const clientMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -192,14 +227,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
   // Server-side aggregated counts for the selected period and previous period
   const [totals, setTotals]         = useState<Record<string, number>>({})
-  const [prevTotals, setPrevTotals] = useState<Record<string, number>>({})
   const [repTotals, setRepTotals]   = useState<Record<string, Record<string, number>>>({})
   const [trendRows, setTrendRows]   = useState<{ date: string; metric_key: string; total: number }[]>([])
+  const [hourlyTrendRows, setHourlyTrendRows] = useState<{ hour: number; metric_key: string; total: number }[]>([])
+  const [attendanceTrendRows, setAttendanceTrendRows] = useState<{ date: string; activity_type: string; total: number }[]>([])
   const [discByHour, setDiscByHour] = useState<{ hour: number; total: number }[]>([])
   const [showByDow, setShowByDow] = useState<{ activity_type: string; dow: number; total: number; attended: number }[]>([])
   const [showRates, setShowRates]   = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [periodShowRates, setPeriodShowRates] = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
-  const [prevPeriodShowRates, setPrevPeriodShowRates] = useState<{ rep_id: string | null; activity_type: string; total: number; attended: number }[]>([])
   const [attendedConversions, setAttendedConversions] = useState<Record<string, {
     discBooked: number
     discAttended: number
@@ -214,8 +249,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     setOffset(0)
   }
 
-  const bounds     = useMemo(() => getPeriodBounds(range, offset),     [range, offset])
-  const prevBounds = useMemo(() => range === 'all' ? null : getPeriodBounds(range, offset + 1), [range, offset])
+  const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
 
   // Fetch aggregated counts from server when period changes
   useEffect(() => {
@@ -250,35 +284,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       if (!cancelled) setPeriodShowRates(res)
     })
 
-    if (range === 'all' || !prevBounds) {
-      setPrevTotals({})
-      setPrevPeriodShowRates([])
-    } else {
-      const ps = toISO(prevBounds.start)
-      const pe = toISO(prevBounds.end)
-      getActivityCountsAction(ps, pe).then((res) => {
-        if (cancelled) return
-        const merged: Record<string, number> = {}
-        Object.values(res).forEach((m) => {
-          Object.entries(m).forEach(([k, v]) => { merged[k] = (merged[k] ?? 0) + v })
-        })
-        setPrevTotals(merged)
-      })
-      getShowRatesAction(ps, pe).then((res) => {
-        if (!cancelled) setPrevPeriodShowRates(res)
-      })
-    }
-
     return () => { cancelled = true }
     // Intentionally depend on period only — not clients — so a refresh that
     // replaces the clients array doesn't re-fire all of these reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, offset])
-
-  const tgt = useMemo(() => {
-    const period = range === 'day' ? 'daily' : range === 'week' ? 'weekly' : range === 'month' ? 'monthly' : null
-    return targets.find((t) => t.period === period) ?? null
-  }, [range, targets])
 
   const filteredClients = useMemo(
     () => clients.filter((c) => c.since_date && inBoundsDate(c.since_date, bounds)),
@@ -286,10 +296,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
   )
 
   const closedCount = filteredClients.length
-  const prevClosedCount = useMemo(
-    () => clients.filter((c) => c.since_date && inBoundsDate(c.since_date, prevBounds)).length,
-    [clients, prevBounds],
-  )
 
   const allTimeRepTotals = useMemo(() => {
     const rt: Record<string, Record<string, number>> = {}
@@ -319,30 +325,46 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
 
     if (range === 'day') {
       const start = new Date(end)
-      start.setDate(end.getDate() - 13)
-      return { start, end, granularity: 'day' as const, title: 'Daily trend · 14 days' }
+      return { start, end, granularity: 'hour' as const, title: 'Hourly · this day' }
+    }
+    if (range === 'week') {
+      const weekEnd = new Date(end)
+      const start = new Date(weekEnd)
+      start.setDate(weekEnd.getDate() - 41) // 6 weeks of daily points
+      start.setHours(0, 0, 0, 0)
+      return { start, end: weekEnd, granularity: 'day' as const, title: 'Daily trend · 6 weeks' }
     }
     if (range === 'month') {
-      const start = bounds ? new Date(bounds.start) : new Date(today.getFullYear(), today.getMonth(), 1)
+      const start = new Date(end)
+      start.setMonth(start.getMonth() - 3)
+      start.setDate(start.getDate() + 1)
       start.setHours(0, 0, 0, 0)
-      return { start, end, granularity: 'day' as const, title: 'Daily trend · this month' }
+      return { start, end, granularity: 'week' as const, title: 'Weekly trend · 3 months' }
     }
-    // week + all → weekly buckets ending at the selected period
-    const weekStart = bounds ? new Date(bounds.start) : mondayOf(end)
+    // all → weekly buckets ending at today
+    const weekStart = mondayOf(end)
     weekStart.setHours(0, 0, 0, 0)
-    const weeksBack = range === 'all' ? 11 : 5
     const start = new Date(weekStart)
-    start.setDate(weekStart.getDate() - weeksBack * 7)
+    start.setDate(weekStart.getDate() - 11 * 7)
     return {
       start,
       end,
       granularity: 'week' as const,
-      title: range === 'all' ? 'Weekly trend · last 12 weeks' : 'Weekly trend · 6 weeks',
+      title: 'Weekly trend · last 12 weeks',
     }
   }, [range, bounds])
 
   useEffect(() => {
+    if (trendWindow.granularity === 'hour') {
+      const dateISO = toISO(trendWindow.start)
+      getHourlyTrendAction(dateISO).then(setHourlyTrendRows)
+      setTrendRows([])
+      setAttendanceTrendRows([])
+      return
+    }
     getTrendAction(toISO(trendWindow.start), toISO(trendWindow.end)).then(setTrendRows)
+    getAttendanceTrendAction(toISO(trendWindow.start), toISO(trendWindow.end)).then(setAttendanceTrendRows)
+    setHourlyTrendRows([])
   }, [trendWindow])
 
   useEffect(() => {
@@ -369,25 +391,33 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       conv: number
       vm: number
       disc: number
+      discAtt: number
       demo: number
+      demoAtt: number
       onb: number
       closed: number
     }> = []
 
-    if (granularity === 'day') {
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = toISO(d)
+    const fmtHour = (h: number) =>
+      h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`
+
+    if (granularity === 'hour') {
+      // Business hours 7am–8pm ET (matches discovery-by-hour chart)
+      const HOURS = Array.from({ length: 14 }, (_, i) => i + 7)
+      for (const h of HOURS) {
         const t: Record<string, number> = {}
-        trendRows
-          .filter((r) => r.date === dateStr)
+        hourlyTrendRows
+          .filter((r) => r.hour === h)
           .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
         out.push({
-          label: (d.getMonth() + 1) + '/' + d.getDate(),
+          label: fmtHour(h),
           dials: t.dials ?? 0,
           conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
           vm: t.vm ?? 0,
           disc: t.disc ?? 0,
+          discAtt: 0,
           demo: t.demo ?? 0,
+          demoAtt: 0,
           onb: t.onb ?? 0,
           closed: t.closed ?? 0,
         })
@@ -395,11 +425,36 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       return out
     }
 
-    // Weekly buckets from Monday-aligned start through end
+    if (granularity === 'day') {
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        if (isWeekend(d)) continue
+        const dateStr = toISO(d)
+        const t: Record<string, number> = {}
+        trendRows
+          .filter((r) => r.date === dateStr)
+          .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
+        const attendance = attendanceTrendRows.filter((r) => r.date === dateStr)
+        out.push({
+          label: (d.getMonth() + 1) + '/' + d.getDate(),
+          dials: t.dials ?? 0,
+          conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
+          vm: t.vm ?? 0,
+          disc: t.disc ?? 0,
+          discAtt: attendance.filter((r) => r.activity_type === 'disc').reduce((sum, r) => sum + r.total, 0),
+          demo: t.demo ?? 0,
+          demoAtt: attendance.filter((r) => r.activity_type === 'demo').reduce((sum, r) => sum + r.total, 0),
+          onb: t.onb ?? 0,
+          closed: t.closed ?? 0,
+        })
+      }
+      return out
+    }
+
+    // Weekly buckets Mon–Fri (skip weekends)
     for (let cursor = mondayOf(start); cursor <= end; cursor.setDate(cursor.getDate() + 7)) {
       const weekStart = new Date(cursor)
       const weekEnd = new Date(cursor)
-      weekEnd.setDate(cursor.getDate() + 6)
+      weekEnd.setDate(cursor.getDate() + 4) // Friday
       const asOf = weekEnd > end ? end : weekEnd
       const startStr = toISO(weekStart)
       const endStr = toISO(asOf)
@@ -407,22 +462,49 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
       trendRows
         .filter((r) => r.date >= startStr && r.date <= endStr)
         .forEach((r) => { t[r.metric_key] = (t[r.metric_key] ?? 0) + r.total })
+      const attendance = attendanceTrendRows.filter((r) => r.date >= startStr && r.date <= endStr)
       const isCurrent = endStr === toISO(end)
       out.push({
         label: isCurrent && offset === 0 && range !== 'all' ? 'Now' : (weekStart.getMonth() + 1) + '/' + weekStart.getDate(),
         dials: t.dials ?? 0,
-        conv: t.dm_conv ?? 0,
+        conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
         vm: t.vm ?? 0,
         disc: t.disc ?? 0,
+        discAtt: attendance.filter((r) => r.activity_type === 'disc').reduce((sum, r) => sum + r.total, 0),
         demo: t.demo ?? 0,
+        demoAtt: attendance.filter((r) => r.activity_type === 'demo').reduce((sum, r) => sum + r.total, 0),
         onb: t.onb ?? 0,
         closed: t.closed ?? 0,
       })
     }
     return out
-  }, [trendRows, trendWindow, offset, range])
+  }, [trendRows, hourlyTrendRows, attendanceTrendRows, trendWindow, offset, range])
 
-  const delta = (a: number, b: number) => (b ? ((a - b) / b) * 100 : null)
+  const chartSeparatorIndices = useMemo(() => {
+    if (range === 'month' && trendWindow.granularity === 'week') {
+      const separators: number[] = []
+      let pointIndex = 0
+      let previousMonth: number | null = null
+      for (let d = mondayOf(trendWindow.start); d <= trendWindow.end; d.setDate(d.getDate() + 7)) {
+        const month = d.getFullYear() * 12 + d.getMonth()
+        if (previousMonth !== null && month !== previousMonth) separators.push(pointIndex)
+        previousMonth = month
+        pointIndex++
+      }
+      return separators
+    }
+
+    if (trendWindow.granularity !== 'day') return []
+    const separators: number[] = []
+    let pointIndex = 0
+    for (let d = new Date(trendWindow.start); d <= trendWindow.end; d.setDate(d.getDate() + 1)) {
+      if (isWeekend(d)) continue
+      if (d.getDay() === 1 && pointIndex > 0) separators.push(pointIndex)
+      pointIndex++
+    }
+    return separators
+  }, [range, trendWindow])
+
   const label = periodLabel(range, offset, bounds)
 
   const periodMrr = useMemo(() => {
@@ -504,8 +586,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
           .filter((c) => { const d = c.cancel_date as string | null; return d && d >= windowStartStr && d <= windowEndStr })
           .map((c) => c.cancel_date as string),
       ])]
-      if (!eventDates.includes(windowStartStr)) eventDates.unshift(windowStartStr)
-      if (!eventDates.includes(windowEndStr)) eventDates.push(windowEndStr)
+        .filter((iso) => !isWeekend(new Date(iso + 'T00:00')))
+      if (!eventDates.includes(windowStartStr) && !isWeekend(windowStart)) eventDates.unshift(windowStartStr)
+      const endIso = toISO(lastWeekday(windowEndCapped))
+      if (!eventDates.includes(endIso)) eventDates.push(endIso)
       eventDates.sort()
       return eventDates
     })()
@@ -598,36 +682,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     if (!row || row.total === 0) return null
     return { attended: row.attended, total: row.total, rate: Math.round(row.attended / row.total * 100) }
   }
-  const teamDiscShow = showRates
-    .filter((r) => r.activity_type === 'disc')
-    .reduce((acc, r) => ({ attended: acc.attended + r.attended, total: acc.total + r.total }), { attended: 0, total: 0 })
-
-  // Demo book rate: attended disc that led to demo bookings
-  const teamDemoBook = Object.values(attendedConversions).reduce(
-    (acc, conv) => ({
-      attended: acc.attended + conv.discAttended,
-      converted: acc.converted + conv.discToDemoConversions,
-    }),
-    { attended: 0, converted: 0 }
-  )
-
-  const teamDiscRate = teamDiscShow.total ? Math.round(teamDiscShow.attended / teamDiscShow.total * 100) : null
-  const teamDemoRate = teamDemoBook.attended ? Math.round(teamDemoBook.converted / teamDemoBook.attended * 100) : null
-
-  const periodDiscShow = periodShowRates.filter((r) => r.activity_type === 'disc').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
-  const prevDiscShow   = prevPeriodShowRates.filter((r) => r.activity_type === 'disc').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
-  const periodDiscRate = periodDiscShow.total ? Math.round(periodDiscShow.attended / periodDiscShow.total * 100) : null
-  const prevDiscRate   = prevDiscShow.total   ? Math.round(prevDiscShow.attended   / prevDiscShow.total   * 100) : null
-  const discRateDelta  = periodDiscRate !== null && prevDiscRate !== null ? periodDiscRate - prevDiscRate : null
-
-  const periodDemoShow = periodShowRates.filter((r) => r.activity_type === 'demo').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
-  const prevDemoShow   = prevPeriodShowRates.filter((r) => r.activity_type === 'demo').reduce((a, r) => ({ attended: a.attended + r.attended, total: a.total + r.total }), { attended: 0, total: 0 })
-  const periodDemoRate = periodDemoShow.total ? Math.round(periodDemoShow.attended / periodDemoShow.total * 100) : null
-  const prevDemoRate   = prevDemoShow.total   ? Math.round(prevDemoShow.attended   / prevDemoShow.total   * 100) : null
-  const demoRateDelta  = periodDemoRate !== null && prevDemoRate !== null ? periodDemoRate - prevDemoRate : null
 
   const t = totals
-  const pt = prevTotals
 
   void pct // imported but used inline below
 
@@ -737,7 +793,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             </div>
             <Speedometer
               value={periodMrr}
-              milestones={[5000, 10000, 20000, 50000, 100000]}
+              milestones={[5000, 10000, 20000, 50000, 80000, 100000]}
               max={100000}
               size={320}
               formatter={(v) => v === 0 ? '$0' : `$${Math.round(v / 1000)}k`}
@@ -747,6 +803,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               sweepAngle={180}
               showValue={false}
               pillOffsetY={-40}
+              zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#8B5CF6', '#00E5A0']}
               pill={<Pill color="#00D4FF">{fmtMoney(periodMrr)}</Pill>}
             />
           </div>
@@ -757,7 +814,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             </div>
             <Speedometer
               value={periodClientCount}
-              milestones={[10, 20, 40, 80, 100, 160]}
+              milestones={[10, 20, 40, 80, 160]}
               max={160}
               size={420}
               minorStep={10}
@@ -767,7 +824,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               valueFontSize={64}
               valueOffsetY={12}
               pillOffsetY={-21}
-              zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#8B5CF6', '#00E5A0']}
+              zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#00E5A0']}
               pill={<Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(initialMrr / activeClientCount)) : '—'}</Pill>}
             />
           </div>
@@ -796,90 +853,155 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </div>
       </Card>
 
-      {/* Activity KPIs + ARR growth */}
-      <div className="grid grid-cols-[1.5fr_1fr] gap-3.5 items-stretch">
-        <div className="grid grid-cols-4 gap-3.5">
-          <Card><KPI label="Dials"         value={t.dials  ?? 0} target={tgt?.dials}  color="#00D4FF" formatter={fmtNum} delta={delta(t.dials ?? 0, pt.dials ?? 0)} /></Card>
-          <Card><KPI label="Voicemails"    value={t.vm     ?? 0}                       color="#5A6685" formatter={fmtNum} delta={delta(t.vm    ?? 0, pt.vm    ?? 0)} /></Card>
-          <Card><KPI label="Conversations" value={t.dm_conv ?? 0} target={tgt?.dm_conv} color="#8B5CF6" formatter={fmtNum} delta={delta(t.dm_conv ?? 0, pt.dm_conv ?? 0)} /></Card>
-          <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
-          <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
-          <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
-          <Card>
-            <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FFB800] mb-1">Disc show rate</div>
-            <div className="mono text-[28px] font-extrabold text-ink leading-none">
-              {teamDiscRate !== null ? `${teamDiscRate}%` : '—'}
-            </div>
-            {discRateDelta !== null && <div className="mt-1"><Delta value={discRateDelta} /></div>}
-          </Card>
-          <Card>
-            <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo show rate</div>
-            <div className="mono text-[28px] font-extrabold text-ink leading-none">
-              {teamDemoRate !== null ? `${teamDemoRate}%` : '—'}
-            </div>
-            {demoRateDelta !== null && <div className="mt-1"><Delta value={demoRateDelta} /></div>}
-          </Card>
-        </div>
-        <Card className="flex flex-col">
-          <SectionTitle>ARR growth · projected</SectionTitle>
-          <div className="flex-1 min-h-0">
-            <ArrGrowthChart
-              actual={arrGrowth.actual}
-              projected={arrGrowth.projected}
-              formatter={fmtArrTick}
-            />
-          </div>
-        </Card>
-      </div>
-
-      {/* Conversion pipeline */}
+      {/* Sales pipeline */}
       <Card>
-        <SectionTitle>Conversion pipeline · {label.toLowerCase()}</SectionTitle>
+        <SectionTitle>Sales pipeline · {label.toLowerCase()}</SectionTitle>
         {(() => {
-          const mult = range === 'month' ? 4 : range === 'day' ? 1 / 5 : 1
-          const repsCount = reps.length || 1
-          const weeklyTargets = tgt || { dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 }
-          const teamAttendedDisc = periodShowRates
+          const discBooked = t.disc ?? 0
+          const demoBooked = t.demo ?? 0
+          const discAttended = periodShowRates
             .filter((r) => r.activity_type === 'disc')
             .reduce((sum, r) => sum + r.attended, 0)
-          const teamAttendedDemo = periodShowRates
+          const demoAttended = periodShowRates
             .filter((r) => r.activity_type === 'demo')
             .reduce((sum, r) => sum + r.attended, 0)
-          const metrics = [
-            { key: 'dials',  label: 'Dials',    short: 'Dials',    value: t.dials ?? 0,    color: '#00D4FF', target: (weeklyTargets.dials ?? 250) * mult * repsCount },
-            { key: 'conv',   label: 'Conv',     short: 'Conv',     value: t.dm_conv ?? 0,  color: '#8B5CF6', target: (weeklyTargets.dm_conv ?? 50) * mult * repsCount },
-            { key: 'disc',   label: 'Disc ATT', short: 'Disc ATT', value: teamAttendedDisc, color: '#FFB800', target: (weeklyTargets.disc ?? 20) * mult * repsCount },
-            { key: 'demo',   label: 'Demo ATT', short: 'Demo ATT', value: teamAttendedDemo, color: '#FF3D9A', target: (weeklyTargets.demo ?? 7) * mult * repsCount },
-            { key: 'closed', label: 'Closed',   short: 'Closed',   value: closedCount,      color: '#00E5A0', target: (weeklyTargets.closed ?? 3) * mult * repsCount },
+          const stages: Array<{
+            key: NonNullable<typeof pipelineMetric>
+            label: string
+            value: number
+            color: string
+          }> = [
+            { key: 'dials', label: 'Dials', value: t.dials ?? 0, color: '#00D4FF' },
+            { key: 'vm', label: 'Voice mail', value: t.vm ?? 0, color: '#5A6685' },
+            { key: 'conv', label: 'Conversations', value: t.dm_conv ?? 0, color: '#8B5CF6' },
+            { key: 'disc', label: 'Discovery booked', value: discBooked, color: '#FFB800' },
+            { key: 'disc_att', label: 'Discovery attended', value: discAttended, color: '#FFB800' },
+            { key: 'demo', label: 'Demo booked', value: demoBooked, color: '#FF3D9A' },
+            { key: 'demo_att', label: 'Demo attended', value: demoAttended, color: '#FF3D9A' },
+            { key: 'closed', label: 'Closed', value: closedCount, color: '#00E5A0' },
           ]
-          return <ActivityPipelineCard title="Conversion goals" metrics={metrics} showConversionRates={false} />
+          return (
+            <div className="mt-3 grid grid-cols-8 gap-2">
+              {stages.map((stage, i) => {
+                const active = pipelineMetric === stage.key
+                return (
+                  <button
+                    key={stage.key}
+                    type="button"
+                    onClick={() => setPipelineMetric((prev) => (prev === stage.key ? null : stage.key))}
+                    className="relative flex flex-col items-center text-center px-1 py-2 rounded-lg transition-colors"
+                    style={{
+                      background: active ? stage.color + '18' : 'transparent',
+                      boxShadow: active ? `inset 0 0 0 1px ${stage.color}55` : 'none',
+                    }}
+                  >
+                    {i > 0 && (
+                      <div className="pointer-events-none absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 text-ink-3 text-[12px]">→</div>
+                    )}
+                    <div className="text-[10px] font-bold uppercase tracking-[0.6px] mb-1.5" style={{ color: stage.color }}>
+                      {stage.label}
+                    </div>
+                    <div className="mono text-[24px] font-extrabold text-ink leading-none">
+                      {fmtNum(stage.value)}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )
         })()}
       </Card>
 
-      {/* Trend + Funnel */}
+      {/* Metric / ARR chart */}
+      <Card className="flex flex-col">
+        {(() => {
+          const metricMeta: Record<NonNullable<typeof pipelineMetric>, { label: string; color: string; seriesKey: 'dials' | 'vm' | 'conv' | 'disc' | 'discAtt' | 'demo' | 'demoAtt' | 'closed' }> = {
+            dials: { label: 'Dials', color: '#00D4FF', seriesKey: 'dials' },
+            vm: { label: 'Voice mail', color: '#5A6685', seriesKey: 'vm' },
+            conv: { label: 'Conversations', color: '#8B5CF6', seriesKey: 'conv' },
+            disc: { label: 'Discovery booked', color: '#FFB800', seriesKey: 'disc' },
+            disc_att: { label: 'Discovery attended', color: '#FFB800', seriesKey: 'discAtt' },
+            demo: { label: 'Demo booked', color: '#FF3D9A', seriesKey: 'demo' },
+            demo_att: { label: 'Demo attended', color: '#FF3D9A', seriesKey: 'demoAtt' },
+            closed: { label: 'Closed', color: '#00E5A0', seriesKey: 'closed' },
+          }
+
+          if (!pipelineMetric) {
+            return (
+              <>
+                <SectionTitle right={
+                  <Segmented
+                    value={pipelineChartMode}
+                    onChange={(v) => setPipelineChartMode(v as 'bar' | 'trend')}
+                    options={[
+                      { value: 'bar', label: 'Bar' },
+                      { value: 'trend', label: 'Trend' },
+                    ]}
+                  />
+                }>
+                  Select a pipeline metric
+                </SectionTitle>
+                <div className="min-h-[160px]">
+                  {pipelineChartMode === 'bar' ? (
+                    <BarChart data={[]} color="#3D4555" formatter={fmtNum} />
+                  ) : (
+                    <AreaTrendChart labels={[]} data={[]} color="#3D4555" formatter={fmtNum} />
+                  )}
+                </div>
+              </>
+            )
+          }
+
+          const meta = metricMeta[pipelineMetric]
+          return (
+            <>
+              <SectionTitle right={
+                <Segmented
+                  value={pipelineChartMode}
+                  onChange={(v) => setPipelineChartMode(v as 'bar' | 'trend')}
+                  options={[
+                    { value: 'bar', label: 'Bar' },
+                    { value: 'trend', label: 'Trend' },
+                  ]}
+                />
+              }>
+                {meta.label} · {trendWindow.title.replace(/^Weekly trend ·\s*/i, '').toLowerCase()}
+              </SectionTitle>
+              <div className="min-h-[160px]">
+                {pipelineChartMode === 'bar' ? (
+                  <BarChart
+                    data={trendData.map((w) => ({ label: w.label, value: w[meta.seriesKey] }))}
+                    color={meta.color}
+                    formatter={fmtNum}
+                    verticalSeparators={chartSeparatorIndices}
+                  />
+                ) : (
+                  <AreaTrendChart
+                    labels={trendData.map((w) => w.label)}
+                    data={trendData.map((w) => w[meta.seriesKey])}
+                    color={meta.color}
+                    formatter={fmtNum}
+                    verticalSeparators={chartSeparatorIndices}
+                  />
+                )}
+              </div>
+              <div className="mono text-[10px] text-ink-3 mt-1">Click the metric again to clear</div>
+            </>
+          )
+        })()}
+      </Card>
+
+      {/* ARR chart + weekly MRR */}
       <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
-        <Card>
-          <SectionTitle right={
-            <div className="flex gap-3.5 text-[11px] text-ink-2">
-              {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FFB800', l: 'Disc' }, { c: '#FF3D9A', l: 'Demos' }, { c: '#00E5A0', l: 'Closes' }].map((x) => (
-                <span key={x.l} className="inline-flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ background: x.c }} />{x.l}
-                </span>
-              ))}
-            </div>
-          }>{trendWindow.title}</SectionTitle>
-          <LineChart
-            labels={trendData.map((w) => w.label)}
-            series={[
-              { name: 'Dials', color: '#00D4FF', data: trendData.map((w) => w.dials) },
-              { name: 'Conv',  color: '#8B5CF6', data: trendData.map((w) => w.conv) },
-              { name: 'Disc',  color: '#FFB800', data: trendData.map((w) => w.disc * 4) },
-              { name: 'Demos', color: '#FF3D9A', data: trendData.map((w) => w.demo * 8) },
-              { name: 'Closes', color: '#00E5A0', data: trendData.map((w) => w.closed * 16) },
-            ]}
-            height={240}
-          />
-          <div className="mono text-[10px] text-ink-3 mt-2">* disc 4x, demos 8x, closes 16x scale for trend visibility</div>
+        <Card className="flex flex-col">
+          <SectionTitle>ARR growth</SectionTitle>
+          <div className="flex-1 min-h-[220px]">
+            <ArrGrowthChart
+              actual={arrGrowth.actual}
+              projected={[]}
+              formatter={fmtArrTick}
+            />
+          </div>
         </Card>
 
         <Card className="flex flex-col">

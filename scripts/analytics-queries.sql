@@ -163,3 +163,59 @@ WHERE d.activity_type = 'demo'
       AND disc.activity_type = 'disc'
   )
 ORDER BY d.scheduled_date;
+
+
+-- ============================================================
+-- 6. CLIENT BASE DOUBLING TIME
+--    Cumulative signups by since_date: when we hit 1, 2, 4, 8, ...
+--    and days between each doubling.
+-- ============================================================
+WITH ordered AS (
+  SELECT
+    name,
+    since_date,
+    ROW_NUMBER() OVER (ORDER BY since_date ASC, created_at ASC) AS n
+  FROM clients
+),
+targets AS (
+  SELECT 1 AS target UNION ALL SELECT 2 UNION ALL SELECT 4 UNION ALL SELECT 8
+  UNION ALL SELECT 16 UNION ALL SELECT 32 UNION ALL SELECT 64 UNION ALL SELECT 128
+),
+hits AS (
+  SELECT
+    t.target,
+    o.since_date AS hit_date,
+    o.name AS crossing_client
+  FROM targets t
+  JOIN ordered o ON o.n = t.target
+),
+with_lag AS (
+  SELECT
+    target,
+    hit_date,
+    crossing_client,
+    LAG(hit_date) OVER (ORDER BY target) AS prev_hit_date,
+    (SELECT MIN(since_date) FROM clients) AS first_date
+  FROM hits
+)
+SELECT
+  target AS clients,
+  hit_date,
+  crossing_client,
+  CASE WHEN prev_hit_date IS NULL THEN NULL
+       ELSE hit_date - prev_hit_date END AS days_from_prev_doubling,
+  hit_date - first_date AS days_from_first_client
+FROM with_lag
+ORDER BY target;
+
+-- Current count + elapsed from first client
+SELECT
+  COUNT(*) AS total_signed,
+  COUNT(*) FILTER (
+    WHERE since_date <= CURRENT_DATE
+      AND (cancel_date IS NULL OR cancel_date > CURRENT_DATE)
+  ) AS active_today,
+  MIN(since_date) AS first_client_date,
+  CURRENT_DATE - MIN(since_date) AS days_since_first
+FROM clients;
+

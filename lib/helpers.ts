@@ -100,12 +100,45 @@ export function clientRevenueContribution(
 
 export type LiveRange = 'day' | 'week' | 'month'
 
+function isWeekend(d: Date): boolean {
+  const dow = d.getDay()
+  return dow === 0 || dow === 6
+}
+
+/** Most recent weekday on or before `d` (Sat/Sun → Friday). */
+function lastWeekday(d: Date): Date {
+  const out = new Date(d)
+  out.setHours(0, 0, 0, 0)
+  while (isWeekend(out)) out.setDate(out.getDate() - 1)
+  return out
+}
+
+/** Move `delta` weekdays from `d` (negative = past). */
+function addWeekdays(d: Date, delta: number): Date {
+  const out = new Date(d)
+  out.setHours(0, 0, 0, 0)
+  let remaining = Math.abs(delta)
+  const step = delta < 0 ? -1 : 1
+  while (remaining > 0) {
+    out.setDate(out.getDate() + step)
+    if (!isWeekend(out)) remaining--
+  }
+  return out
+}
+
+function toLocalISO(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function getPeriodBounds(range: LiveRange, offset: number): { start: Date; end: Date } {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   if (range === 'day') {
-    const d = new Date(today)
-    d.setDate(today.getDate() - offset)
+    // Weekend → last Friday; offset counts weekdays only (Fri ← → Mon)
+    const d = addWeekdays(lastWeekday(today), -offset)
     return { start: d, end: d }
   }
   if (range === 'week') {
@@ -115,19 +148,25 @@ export function getPeriodBounds(range: LiveRange, offset: number): { start: Date
     thisMonday.setDate(today.getDate() - daysFromMonday)
     const start = new Date(thisMonday)
     start.setDate(thisMonday.getDate() - offset * 7)
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
+    const friday = new Date(start)
+    friday.setDate(start.getDate() + 4)
+    const end = offset === 0 ? lastWeekday(today) : friday
     return { start, end }
   }
   const start = new Date(today.getFullYear(), today.getMonth() - offset, 1)
-  const end = new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
+  const end = offset === 0 ? lastWeekday(today) : lastWeekday(monthEnd)
   return { start, end }
 }
 
 export function getPeriodLabel(range: LiveRange, offset: number, b: { start: Date; end: Date }): string {
   if (range === 'day') {
-    if (offset === 0) return 'Today'
-    if (offset === 1) return 'Yesterday'
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (toLocalISO(b.start) === toLocalISO(today)) return 'Today'
+    const yesterday = new Date(today)
+    yesterday.setDate(today.getDate() - 1)
+    if (toLocalISO(b.start) === toLocalISO(yesterday)) return 'Yesterday'
     return b.start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   }
   if (range === 'week') {

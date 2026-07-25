@@ -131,6 +131,47 @@ export async function getTrendAction(startISO: string, endISO: string) {
   return rows
 }
 
+/** Activity totals by hour (ET) for a single day. */
+export async function getHourlyTrendAction(dateISO: string) {
+  const rows = await db
+    .select({
+      hour:       sql<number>`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`,
+      metric_key: activity_log_entries.metric_key,
+      total:      sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
+    })
+    .from(activity_log_entries)
+    .where(eq(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, dateISO))
+    .groupBy(
+      sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`,
+      activity_log_entries.metric_key,
+    )
+    .orderBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
+
+  return rows
+}
+
+export async function getAttendanceTrendAction(startISO: string, endISO: string) {
+  try {
+    return await db
+      .select({
+        date: calendar.scheduled_date,
+        activity_type: calendar.activity_type,
+        total: sql<number>`cast(count(*) as int)`,
+      })
+      .from(calendar)
+      .where(and(
+        gte(calendar.scheduled_date, startISO),
+        lte(calendar.scheduled_date, endISO),
+        eq(calendar.status, 'attended'),
+        inArray(calendar.activity_type, ['disc', 'demo']),
+      ))
+      .groupBy(calendar.scheduled_date, calendar.activity_type)
+      .orderBy(calendar.scheduled_date)
+  } catch {
+    return []
+  }
+}
+
 export async function getDiscByHourAction() {
   const rows = await db
     .select({

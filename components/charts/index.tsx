@@ -101,6 +101,115 @@ export function LineChart({ series, labels, width = 720, height = 240, yFormatte
   )
 }
 
+interface AreaTrendChartProps {
+  labels: string[]
+  data: number[]
+  color: string
+  formatter?: (v: number) => string
+  minHeight?: number
+  verticalSeparators?: number[]
+}
+
+export function AreaTrendChart({ labels, data, color, formatter = String, minHeight = 220, verticalSeparators = [] }: AreaTrendChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const gradientId = useId()
+  const [dimensions, setDimensions] = useState({ width: 720, height: minHeight })
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.max(1, Math.round(entry.contentRect.width))
+      const height = Math.max(minHeight, Math.round(entry.contentRect.height))
+      setDimensions((current) =>
+        current.width === width && current.height === height ? current : { width, height }
+      )
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [minHeight])
+
+  const { width, height } = dimensions
+  const pad = { l: 52, r: 18, t: 18, b: 34 }
+  const w = Math.max(1, width - pad.l - pad.r)
+  const h = Math.max(1, height - pad.t - pad.b)
+  const maxValue = Math.max(...data, 1)
+  const magnitude = 10 ** Math.floor(Math.log10(maxValue))
+  const niceMax = Math.ceil(maxValue / magnitude) * magnitude
+  const ticks = Array.from({ length: 5 }, (_, i) => (niceMax * i) / 4)
+  const stepX = w / Math.max(1, data.length - 1)
+  const points: [number, number][] = data.map((value, i) => [
+    pad.l + i * stepX,
+    pad.t + h - (value / niceMax) * h,
+  ])
+  const linePath = monotoneCubic(points)
+  const baseline = pad.t + h
+  const areaPath = points.length
+    ? `${linePath} L ${points[points.length - 1][0].toFixed(1)} ${baseline.toFixed(1)} L ${points[0][0].toFixed(1)} ${baseline.toFixed(1)} Z`
+    : ''
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight }}>
+      <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {ticks.map((tick, i) => {
+          const y = pad.t + h - (tick / niceMax) * h
+          return (
+            <g key={i}>
+              <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="#2D3852" strokeWidth="1" strokeDasharray="3 4" />
+              <text x={pad.l - 8} y={y + 4} fill="#A7B1C9" fontSize="10" fontWeight="600" textAnchor="end" fontFamily="JetBrains Mono, monospace">
+                {formatter(Math.round(tick))}
+              </text>
+            </g>
+          )
+        })}
+
+        {verticalSeparators.map((index) => {
+          const x = pad.l + (index - 0.5) * stepX
+          return <line key={index} x1={x} x2={x} y1={pad.t} y2={baseline} stroke="#59647D" strokeWidth="1.25" strokeDasharray="5 5" />
+        })}
+
+        {labels.map((label, i) => {
+          const x = pad.l + i * stepX
+          return (
+            <g key={`${label}-${i}`}>
+              <line x1={x} x2={x} y1={pad.t} y2={baseline} stroke="#252F47" strokeWidth="1" strokeDasharray="3 5" />
+              <text x={x} y={height - 8} fill="#A7B1C9" fontSize="10" fontWeight="600" textAnchor="middle" fontFamily="JetBrains Mono, monospace">
+                {label}
+              </text>
+            </g>
+          )
+        })}
+
+        {areaPath && <path d={areaPath} fill={`url(#${gradientId})`} />}
+        {linePath && <path d={linePath} fill="none" stroke={color} strokeWidth="2.25" strokeLinejoin="round" strokeLinecap="round" />}
+        {points.map((point, i) => (
+          <g key={i}>
+            <text
+              x={point[0]}
+              y={point[1] - 9}
+              fill={color}
+              fontSize="10"
+              fontWeight="600"
+              textAnchor="middle"
+              fontFamily="JetBrains Mono, monospace"
+            >
+              {formatter(data[i])}
+            </text>
+            <circle cx={point[0]} cy={point[1]} r="3" fill="var(--bg-1)" stroke={color} strokeWidth="2" />
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
 // --- BarChart ---
 interface BarDatum {
   label: string
@@ -115,20 +224,41 @@ interface BarChartProps {
   color?: string
   target?: number | null
   formatter?: (v: number) => string
+  verticalSeparators?: number[]
 }
 
-export function BarChart({ data, width = 720, height = 220, color = '#00D4FF', target = null, formatter = String }: BarChartProps) {
+export function BarChart({ data, width: initialWidth = 720, height: initialHeight = 220, color = '#00D4FF', target = null, formatter = String, verticalSeparators = [] }: BarChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = useState({ width: initialWidth, height: initialHeight })
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.max(1, Math.round(entry.contentRect.width))
+      const height = Math.max(initialHeight, Math.round(entry.contentRect.height))
+      setDimensions((current) =>
+        current.width === width && current.height === height ? current : { width, height }
+      )
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [initialHeight])
+
+  const { width, height } = dimensions
   const pad = { l: 44, r: 16, t: 18, b: 36 }
   const w = width - pad.l - pad.r
   const h = height - pad.t - pad.b
   const maxV = Math.max(...data.map((d) => d.value), target ?? 0, 1)
   const niceMax = Math.ceil(maxV / 5) * 5 || 5
   const ticks = Array.from({ length: 5 }, (_, i) => (niceMax * i) / 4)
-  const bw = (w / data.length) * 0.55
-  const gap = (w / data.length) * 0.45
+  const slotWidth = data.length ? w / data.length : 0
+  const bw = slotWidth * 0.55
+  const gap = slotWidth * 0.45
 
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', maxWidth: '100%' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: initialHeight }}>
+    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
       {ticks.map((t, i) => {
         const y = pad.t + h - (t / niceMax) * h
         return (
@@ -137,6 +267,10 @@ export function BarChart({ data, width = 720, height = 220, color = '#00D4FF', t
             <text x={pad.l - 8} y={y + 4} fill="#5A6685" fontSize="10" textAnchor="end" fontFamily="JetBrains Mono">{formatter(t)}</text>
           </g>
         )
+      })}
+      {verticalSeparators.map((index) => {
+        const x = pad.l + index * slotWidth
+        return <line key={index} x1={x} x2={x} y1={pad.t} y2={pad.t + h} stroke="#59647D" strokeWidth="1.25" strokeDasharray="5 5" />
       })}
       {target != null && (() => {
         const y = pad.t + h - (target / niceMax) * h
@@ -161,6 +295,7 @@ export function BarChart({ data, width = 720, height = 220, color = '#00D4FF', t
         )
       })}
     </svg>
+    </div>
   )
 }
 
