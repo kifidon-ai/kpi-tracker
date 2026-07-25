@@ -65,7 +65,7 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
       const saved = localStorage.getItem('ss-tab')
       if (saved === 'live' || saved === 'team' || saved === 'tasks') return saved
     }
-    return 'live'
+    return 'team'
   })
 
   function handleTabChange(t: Tab) {
@@ -138,8 +138,8 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
   }
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'live',  label: 'Live tracker',     icon: 'log' },
     { id: 'team',  label: 'Team performance', icon: 'team' },
+    { id: 'live',  label: 'Live tracker',     icon: 'log' },
     { id: 'tasks', label: 'Task tracker',     icon: 'board' },
   ]
 

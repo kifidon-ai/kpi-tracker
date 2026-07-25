@@ -46,8 +46,8 @@
   --blue: #3B82F6;
   --accent-text: #0A0E1A;
   --header-bg: rgba(10, 14, 26, 0.92);
-  --card-top: #161B2C;
-  --card-bottom: #131826;
+  --card-top: var(--panel-2);
+  --card-bottom: var(--bg-1);
   --column-bg: #0F1422;
   --column-hover: #161B2C;
   --input-bg: #0F1422;
@@ -72,8 +72,8 @@
   --ink-3: #4A5575;
   --accent-text: #0A0E1A;
   --header-bg: rgba(255, 255, 255, 0.92);
-  --card-top: #FFFFFF;
-  --card-bottom: #F8F9FC;
+  --card-top: var(--panel-2);
+  --card-bottom: var(--bg-1);
   --column-bg: #FFFFFF;
   --column-hover: #F0F2F7;
   --input-bg: #FFFFFF;

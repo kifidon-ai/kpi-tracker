@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 // --- Sparkline ---
 interface SparklineProps {
@@ -123,7 +123,7 @@ export function BarChart({ data, width = 720, height = 220, color = '#00D4FF', t
   const h = height - pad.t - pad.b
   const maxV = Math.max(...data.map((d) => d.value), target ?? 0, 1)
   const niceMax = Math.ceil(maxV / 5) * 5 || 5
-  const ticks = [0, niceMax / 2, niceMax]
+  const ticks = Array.from({ length: 5 }, (_, i) => (niceMax * i) / 4)
   const bw = (w / data.length) * 0.55
   const gap = (w / data.length) * 0.45
 
@@ -204,61 +204,103 @@ interface SpeedometerProps {
   value: number
   milestones?: number[]
   max?: number
-  color?: string
   size?: number
+  formatter?: (v: number) => string
+  minorStep?: number
+  pill?: ReactNode
+  valueFontSize?: number
+  startAngle?: number
+  sweepAngle?: number
+  radiusRatio?: number
+  showValue?: boolean
+  pillOffsetY?: number
+  showMinorLabels?: boolean
+  zoneColors?: string[]
+  valueOffsetY?: number
+  highlightedTicks?: number[]
 }
 
-export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 100, color = '#00D4FF', size = 200 }: SpeedometerProps) {
+const ZONE_COLORS = ['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#00E5A0', '#8B5CF6', '#E879F9', '#FCD34D']
+
+export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 100, size = 200, formatter = String, minorStep, pill, valueFontSize = 52, startAngle = 180, sweepAngle = 180, radiusRatio = 0.27, showValue = true, pillOffsetY = 0, showMinorLabels = false, zoneColors = ZONE_COLORS, valueOffsetY = 0, highlightedTicks = [] }: SpeedometerProps) {
+  const backgroundGradientId = useId()
   const cx = size / 2
-  const r = size / 2 - 16        // radius: leaves 16px margin each side for the track
-  const sw = 10                   // track stroke width
-  const cy = r + sw / 2 + 34     // center: extra clearance for outside ticks
-  const svgH = cy + 18            // just enough for hub circle + small margin
+  const cy = size / 2
+  const r = size * radiusRatio
+  const sw = 10
+  const startDeg = startAngle
+  const sweepDeg = sweepAngle
 
   const toRad = (deg: number) => (deg * Math.PI) / 180
-  // 0 → left (180°), max → right (0°)
-  const mathDeg = (v: number) => 180 - (Math.min(Math.max(v, 0), max) / max) * 180
+  const mathDeg = (v: number) => startDeg - (Math.min(Math.max(v, 0), max) / max) * sweepDeg
   const pt = (angleDeg: number, radius: number): [number, number] => [
     cx + radius * Math.cos(toRad(angleDeg)),
     cy - radius * Math.sin(toRad(angleDeg)),
   ]
-
-  // arc path helper — always large=0, sweep=1 for sub-arcs of a semicircle
   const arcD = (fromV: number, toV: number) => {
     const [sx, sy] = pt(mathDeg(fromV), r)
     const [ex, ey] = pt(mathDeg(toV), r)
-    return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${r} ${r} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`
+    const arcSweep = ((toV - fromV) / max) * sweepDeg
+    return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${r} ${r} 0 ${Math.abs(arcSweep) > 180 ? 1 : 0} ${arcSweep >= 0 ? 1 : 0} ${ex.toFixed(2)} ${ey.toFixed(2)}`
   }
 
   const clamp = Math.min(Math.max(value, 0), max)
-  const [nx, ny] = pt(mathDeg(clamp), r * 0.72)
 
-  const zoneColor = clamp < 10 ? '#FF5468' : clamp < 20 ? '#8B5CF6' : clamp < 40 ? '#FFB800' : clamp < 80 ? '#00D4FF' : '#00E5A0'
+  // Auto-derive zones from milestones with fixed color sequence
+  const zones = milestones.map((to, i) => ({
+    from: i === 0 ? 0 : milestones[i - 1],
+    to,
+    c: zoneColors[Math.min(i, zoneColors.length - 1)],
+  }))
 
-  const zones = [
-    { from: 0,  to: 10,  c: '#FF5468' },
-    { from: 10, to: 20,  c: '#8B5CF6' },
-    { from: 20, to: 40,  c: '#FFB800' },
-    { from: 40, to: 80,  c: '#00D4FF' },
-    { from: 80, to: 100, c: '#00E5A0' },
-  ]
+  const zoneColor = zones.find((z) => clamp < z.to)?.c ?? zones[zones.length - 1].c
 
-  // milestone labels sit inside the arc so they're never clipped
-  const labelR = r - sw / 2 - 16
+  // Minor ticks at minorStep intervals, plus milestone major ticks
+  const resolvedMinorStep = minorStep ?? max / 20
+  const minorCount = Math.floor(max / resolvedMinorStep)
+  const allTickValues = [
+    ...Array.from({ length: minorCount + 1 }, (_, i) => i * resolvedMinorStep),
+    ...milestones,
+  ].filter((v, i, arr) => v > 0 && arr.indexOf(v) === i).sort((a, b) => a - b)
+
+  const bezelR = size / 2 - 4
+  const trackStart = pt(mathDeg(0), r)
+  const trackEnd = pt(mathDeg(max), r)
+  const isSemicircle = startDeg === 180 && Math.abs(sweepDeg) === 180
+  const viewHeight = isSemicircle ? cy + 24 : size
+  const valueY = (isSemicircle ? cy - r * 0.68 : cy - r * 0.48) + valueOffsetY
+  const pillY = (isSemicircle ? cy - r * 0.25 : cy + r * 0.48) + pillOffsetY
 
   return (
-    <svg width="100%" viewBox={`-50 0 ${size + 100} ${svgH}`} style={{ display: 'block' }}>
+    <svg width="100%" viewBox={`0 0 ${size} ${viewHeight}`} style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id={backgroundGradientId} x1="0" x2="0" y1="1" y2="0">
+          <stop offset="0%" stopColor="var(--bg-1)" />
+          <stop offset="100%" stopColor="var(--panel-2)" />
+        </linearGradient>
+      </defs>
+      {/* Dial bezel */}
+      {isSemicircle ? (
+        <path
+          d={`M ${(cx - bezelR).toFixed(1)} ${cy.toFixed(1)} A ${bezelR.toFixed(1)} ${bezelR.toFixed(1)} 0 0 1 ${(cx + bezelR).toFixed(1)} ${cy.toFixed(1)} L ${(cx - bezelR).toFixed(1)} ${cy.toFixed(1)} Z`}
+          fill={`url(#${backgroundGradientId})`}
+          stroke="var(--line)"
+          strokeWidth="2"
+        />
+      ) : (
+        <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r={bezelR.toFixed(1)} fill={`url(#${backgroundGradientId})`} stroke="var(--line)" strokeWidth="2" />
+      )}
       {/* Background track */}
-      <path d={`M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 0 1 ${(cx + r).toFixed(2)} ${cy.toFixed(2)}`}
-        fill="none" stroke="var(--line)" strokeWidth={sw} strokeLinecap="round" />
-      {/* Zone colour bands on the track */}
+      <path d={`M ${trackStart[0].toFixed(2)} ${trackStart[1].toFixed(2)} A ${r} ${r} 0 ${Math.abs(sweepDeg) > 180 ? 1 : 0} ${sweepDeg >= 0 ? 1 : 0} ${trackEnd[0].toFixed(2)} ${trackEnd[1].toFixed(2)}`}
+        fill="none" stroke="var(--line)" strokeWidth={sw} strokeLinecap="butt" />
+      {/* Zone colour bands */}
       {zones.map((z) => (
         <path key={z.from} d={arcD(z.from, z.to)} fill="none" stroke={z.c + '55'} strokeWidth={sw} strokeLinecap="butt" />
       ))}
-      {/* Multi-colored progress arc — strokeDasharray animates smoothly */}
+      {/* Progress arc */}
       {zones.map((z) => {
-        const totalLen = ((z.to - z.from) / max) * Math.PI * r
-        const filledLen = clamp <= z.from ? 0 : clamp >= z.to ? totalLen : ((clamp - z.from) / max) * Math.PI * r
+        const totalLen = ((z.to - z.from) / max) * Math.abs(toRad(sweepDeg)) * r
+        const filledLen = clamp <= z.from ? 0 : clamp >= z.to ? totalLen : ((clamp - z.from) / max) * Math.abs(toRad(sweepDeg)) * r
         return (
           <path
             key={z.from}
@@ -273,45 +315,49 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
           />
         )
       })}
-      {/* Tip circle rotates along the arc so it can CSS-transition */}
+      {/* Tip circle */}
       {clamp > 0 && (
         <g
-          transform={`rotate(${(clamp / max) * 180}, ${cx}, ${cy})`}
+          transform={`rotate(${180 - startDeg + (clamp / max) * sweepDeg}, ${cx}, ${cy})`}
           style={{ transition: 'transform 700ms cubic-bezier(.25,.8,.25,1)' }}
         >
           <circle cx={cx - r} cy={cy} r={sw / 2} fill={zoneColor} opacity={0.9} style={{ transition: 'fill 700ms ease' }} />
         </g>
       )}
-      {/* All ticks outside the arc — major milestones bigger and zone-colored, minor ones dim */}
-      {Array.from({ length: 11 }, (_, i) => i * 10).map((m) => {
-        const isMajor = milestones.includes(m)
-        const zoneC = isMajor ? (zones.find((z) => z.from === m)?.c ?? 'var(--ink)') : null
+      {/* Ticks — major at milestones, minor in between */}
+      {allTickValues.map((m) => {
+        const isHighlighted = highlightedTicks.includes(m)
+        const isMajor = milestones.includes(m) && !isHighlighted
+        const zoneC = zones.find((z) => z.from === m)?.c ?? zones[zones.length - 1].c
         const deg = mathDeg(m)
-        const tickLen = isMajor ? 16 : 5
+        const tickLen = isMajor ? 16 : isHighlighted ? 10 : 5
         const [t1x, t1y] = pt(deg, r + sw / 2 + 2)
         const [t2x, t2y] = pt(deg, r + sw / 2 + 2 + tickLen)
         const [lx, ly] = pt(deg, r + sw / 2 + 2 + tickLen + 14)
         return (
           <g key={m}>
             <line x1={t1x.toFixed(1)} y1={t1y.toFixed(1)} x2={t2x.toFixed(1)} y2={t2y.toFixed(1)}
-              stroke={isMajor ? zoneC! : 'var(--ink-2)'}
-              strokeWidth={isMajor ? 3 : 1.5} />
-            <text x={lx.toFixed(1)} y={(ly + 4).toFixed(1)}
-              fill={isMajor ? zoneC! : 'var(--ink-3)'}
-              fontSize={isMajor ? 16 : 8}
-              fontWeight={isMajor ? '800' : '400'}
-              textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{m}</text>
+              stroke={isMajor ? zoneC : isHighlighted ? 'var(--ink)' : 'var(--ink-2)'}
+              strokeWidth={isMajor ? 3 : isHighlighted ? 2 : 1.5} />
+            {(isMajor || isHighlighted || showMinorLabels) && (
+              <text x={lx.toFixed(1)} y={(ly + 4).toFixed(1)}
+                fill={isMajor ? zoneC : isHighlighted ? 'var(--ink)' : 'var(--ink-2)'}
+                fontSize={isMajor ? 14 : isHighlighted ? 10 : 8}
+                fontWeight={isMajor || isHighlighted ? 800 : 600}
+                textAnchor="middle" fontFamily="Inter, system-ui, sans-serif">{formatter(m)}</text>
+            )}
           </g>
         )
       })}
-      {/* Value — sits inside the arc above center */}
-      <text x={cx} y={cy - r * 0.48} fill="var(--ink)" fontSize="52" fontWeight="700" textAnchor="middle" dominantBaseline="middle" fontFamily="Inter, system-ui, sans-serif">{value}</text>
-      {/* Needle — shorter, sits above center hub */}
+      {/* Center value */}
+      {showValue && (
+        <text x={cx} y={valueY} fill="var(--ink)" fontSize={valueFontSize} fontWeight="700" textAnchor="middle" dominantBaseline="middle" fontFamily="Inter, system-ui, sans-serif">{formatter(value)}</text>
+      )}
+      {/* Needle */}
       <g
-        transform={`rotate(${(clamp / max) * 180} ${cx.toFixed(1)} ${cy.toFixed(1)})`}
+        transform={`rotate(${180 - startDeg + (clamp / max) * sweepDeg} ${cx.toFixed(1)} ${cy.toFixed(1)})`}
         style={{ transition: 'transform 700ms cubic-bezier(.25,.8,.25,1)' }}
       >
-        {/* Omega-style needle: long thin front tapering to a point, wider belly near hub, small counterweight */}
         <polygon
           points={[
             `${(cx - r * 0.84).toFixed(1)},${cy.toFixed(1)}`,
@@ -325,15 +371,18 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
           ].join(' ')}
           fill="var(--ink)"
         />
-        {/* Lume dot near tip */}
-        <circle
-          cx={(cx - r * 0.68).toFixed(1)} cy={cy.toFixed(1)} r="3"
-          fill={zoneColor} opacity="0.9"
-        />
+        <circle cx={(cx - r * 0.68).toFixed(1)} cy={cy.toFixed(1)} r="3" fill={zoneColor} opacity="0.9" />
       </g>
       {/* Hub */}
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={zoneColor} style={{ transition: 'fill 700ms ease' }} />
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill="var(--bg-1)" />
+      {pill && (
+        <foreignObject x="0" y={pillY} width={size} height="32">
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            {pill}
+          </div>
+        </foreignObject>
+      )}
     </svg>
   )
 }
@@ -386,20 +435,42 @@ function monotoneCubic(pts: [number, number][], tension = 0.55): string {
   return d.join(' ')
 }
 
-export function ArrGrowthChart({ actual, projected, width = 600, height = 160, formatter = String }: ArrGrowthChartProps) {
+export function ArrGrowthChart({ actual, projected, width: initialWidth = 600, height: initialHeight = 160, formatter = String }: ArrGrowthChartProps) {
   const [hovered, setHovered] = useState<number | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = useState({ width: initialWidth, height: initialHeight })
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      const nextWidth = Math.max(1, Math.round(entry.contentRect.width))
+      const nextHeight = Math.max(initialHeight, Math.round(entry.contentRect.height))
+      setDimensions((current) =>
+        current.width === nextWidth && current.height === nextHeight
+          ? current
+          : { width: nextWidth, height: nextHeight }
+      )
+    })
+
+    resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
+  }, [initialHeight])
+
+  const { width, height } = dimensions
 
   if (actual.length === 0) {
     return (
-      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3A4460', fontSize: 12 }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: initialHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3A4460', fontSize: 12 }}>
         No client data yet
       </div>
     )
   }
 
-  const pad = { l: 46, r: 14, t: 18, b: 26 }
-  const w = width - pad.l - pad.r
-  const h = height - pad.t - pad.b
+  const pad = { l: 46, r: 16, t: 18, b: 34 }
+  const w = Math.max(1, width - pad.l - pad.r)
+  const h = Math.max(1, height - pad.t - pad.b)
 
   const allPoints = [...actual, ...projected]
   const minMs = new Date(allPoints[0].date + 'T00:00').getTime()
@@ -428,17 +499,43 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
   const fillPath = `${actualPath} L ${last[0].toFixed(1)} ${(pad.t + h).toFixed(1)} L ${first[0].toFixed(1)} ${(pad.t + h).toFixed(1)} Z`
 
   const ticks = [0, niceMax / 2, niceMax]
+  const axisY = pad.t + h
 
-  // Month labels along x-axis
+  // X-axis labels — monthly when the span is long, otherwise spaced date ticks
   const startD = new Date(allPoints[0].date + 'T00:00')
   const endD   = new Date(allPoints[allPoints.length - 1].date + 'T00:00')
-  const monthLabels: { x: number; label: string }[] = []
-  const cur = new Date(startD.getFullYear(), startD.getMonth(), 1)
-  while (cur <= endD) {
-    const x = pad.l + ((cur.getTime() - minMs) / msRange) * w
-    if (x >= pad.l && x <= pad.l + w)
-      monthLabels.push({ x, label: cur.toLocaleDateString('en-US', { month: 'short' }) })
-    cur.setMonth(cur.getMonth() + 1)
+  const spanDays = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000))
+  const xLabels: { x: number; label: string }[] = []
+
+  if (spanDays >= 60) {
+    const cur = new Date(startD.getFullYear(), startD.getMonth(), 1)
+    if (cur < startD) cur.setMonth(cur.getMonth() + 1)
+    while (cur <= endD) {
+      const x = pad.l + ((cur.getTime() - minMs) / msRange) * w
+      if (x >= pad.l && x <= pad.l + w) {
+        xLabels.push({ x, label: cur.toLocaleDateString('en-US', { month: 'short' }) })
+      }
+      cur.setMonth(cur.getMonth() + 1)
+    }
+  } else {
+    const tickCount = Math.min(5, Math.max(2, Math.ceil(spanDays / 7) + 1))
+    for (let i = 0; i < tickCount; i++) {
+      const t = startD.getTime() + ((endD.getTime() - startD.getTime()) * i) / Math.max(1, tickCount - 1)
+      const d = new Date(t)
+      const x = pad.l + ((d.getTime() - minMs) / msRange) * w
+      xLabels.push({
+        x,
+        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      })
+    }
+  }
+
+  // Always show start/end if we somehow got no labels
+  if (xLabels.length === 0) {
+    xLabels.push(
+      { x: pad.l, label: startD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) },
+      { x: pad.l + w, label: endD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) },
+    )
   }
 
   const gid = 'arr-area-grad'
@@ -446,8 +543,8 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
   const hoveredClients = hovered !== null ? (actual[hovered].clientNames ?? []) : []
 
   return (
-    <div style={{ position: 'relative' }}>
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', maxWidth: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: initialHeight }}>
+      <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
         <defs>
           <linearGradient id={gid} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%"   stopColor="#00E5A0" stopOpacity="0.22" />
@@ -459,20 +556,25 @@ export function ArrGrowthChart({ actual, projected, width = 600, height = 160, f
           const y = pad.t + h - (t / niceMax) * h
           return (
             <g key={i}>
-              <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="var(--line)" strokeDasharray="2 4" />
-              <text x={pad.l - 6} y={y + 3.5} fill="#5A6685" fontSize="9" textAnchor="end" fontFamily="JetBrains Mono, monospace">{formatter(t)}</text>
+              <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="#2D3852" strokeWidth="1" strokeDasharray="3 4" />
+              <text x={pad.l - 7} y={y + 4} fill="#A7B1C9" fontSize="10" fontWeight="600" textAnchor="end" fontFamily="JetBrains Mono, monospace">{formatter(t)}</text>
             </g>
           )
         })}
 
-        {monthLabels.map((m, i) => (
-          <text key={i} x={m.x} y={height - 4} fill="#5A6685" fontSize="9" textAnchor="middle">{m.label}</text>
+        <line x1={pad.l} x2={pad.l + w} y1={axisY} y2={axisY} stroke="#3A4661" strokeWidth="1" />
+        {xLabels.map((m, i) => (
+          <g key={i}>
+            <line x1={m.x.toFixed(1)} x2={m.x.toFixed(1)} y1={pad.t} y2={axisY} stroke="#252F47" strokeWidth="1" strokeDasharray="3 5" />
+            <line x1={m.x.toFixed(1)} x2={m.x.toFixed(1)} y1={axisY} y2={axisY + 4} stroke="#5A6685" strokeWidth="1" />
+            <text x={m.x.toFixed(1)} y={height - 8} fill="#A7B1C9" fontSize="10" fontWeight="600" textAnchor="middle" fontFamily="JetBrains Mono, monospace">{m.label}</text>
+          </g>
         ))}
 
         {todayX >= pad.l && todayX <= pad.l + w && (
           <>
-            <line x1={todayX.toFixed(1)} x2={todayX.toFixed(1)} y1={pad.t} y2={pad.t + h} stroke="#2A3350" strokeDasharray="2 3" strokeWidth="1.5" />
-            <text x={todayX.toFixed(1)} y={pad.t - 4} fill="#3A4460" fontSize="8" textAnchor="middle">today</text>
+            <line x1={todayX.toFixed(1)} x2={todayX.toFixed(1)} y1={pad.t} y2={axisY} stroke="#2A3350" strokeDasharray="2 3" strokeWidth="1.5" />
+            <text x={todayX.toFixed(1)} y={pad.t - 4} fill="#7C88A5" fontSize="9" textAnchor="middle">today</text>
           </>
         )}
 

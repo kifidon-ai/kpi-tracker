@@ -453,24 +453,24 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     if (range === 'all' || !bounds) {
       windowStart = new Date((sorted[0].since_date as string) + 'T00:00')
       windowEnd = today
-      projDays = 91
+      projDays = 14
     } else if (range === 'day') {
       // Selected day + 7 days of prior context
       windowStart = new Date(bounds.start)
       windowStart.setDate(windowStart.getDate() - 7)
       windowEnd = new Date(bounds.end)
-      projDays = 5
+      projDays = 2
     } else if (range === 'week') {
       // Selected week + prior calendar week as context
       windowStart = new Date(bounds.start)
       windowStart.setDate(windowStart.getDate() - 7)
       windowEnd = new Date(bounds.end)
-      projDays = 7
+      projDays = 3
     } else {
       // Selected month + prior calendar month as context
       windowStart = new Date(bounds.start.getFullYear(), bounds.start.getMonth() - 1, 1)
       windowEnd = new Date(bounds.end)
-      projDays = 30
+      projDays = 7
     }
 
     const windowEndCapped = windowEnd > today ? new Date(today) : windowEnd
@@ -572,9 +572,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
     const arrAtEnd = arrAsOf(windowEndStr)
     const weeklyGrowth = (arrAtEnd - arrAtStart) / (growthWindowDays / 7)
 
-    // Sparse projection points (fewer for shorter views)
-    const projSteps = range === 'all' ? 13 : range === 'month' ? 6 : 3
-    const stepDays  = Math.round(projDays / projSteps)
+    // Keep projection short so it doesn't dominate the x-axis
+    const actualSpanDays = Math.max(1, Math.round((windowEndCapped.getTime() - windowStart.getTime()) / 86400000))
+    const cappedProjDays = Math.min(projDays, Math.max(2, Math.round(actualSpanDays * 0.05)))
+    const projSteps = 2
+    const stepDays  = Math.max(1, Math.round(cappedProjDays / projSteps))
     const projected = Array.from({ length: projSteps }, (_, i) => {
       const d = new Date(windowEndCapped)
       d.setDate(d.getDate() + (i + 1) * stepDays)
@@ -725,116 +727,102 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </div>
       </div>
 
-      {/* Hero row */}
-      <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
-
-        {/* Left: KPI grid + conversion pipeline */}
-        <div className="flex flex-col gap-3.5">
-          <div className="grid grid-cols-4 gap-3.5">
-            <Card><KPI label="Dials"         value={t.dials  ?? 0} target={tgt?.dials}  color="#00D4FF" formatter={fmtNum} delta={delta(t.dials ?? 0, pt.dials ?? 0)} /></Card>
-            <Card><KPI label="Voicemails"    value={t.vm     ?? 0}                       color="#5A6685" formatter={fmtNum} delta={delta(t.vm    ?? 0, pt.vm    ?? 0)} /></Card>
-            <Card><KPI label="Conversations" value={t.dm_conv ?? 0} target={tgt?.dm_conv} color="#8B5CF6" formatter={fmtNum} delta={delta(t.dm_conv ?? 0, pt.dm_conv ?? 0)} /></Card>
-            <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
-            <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
-            <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
-            <Card>
-              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FFB800] mb-1">Disc show rate</div>
-              <div className="mono text-[28px] font-extrabold text-ink leading-none">
-                {teamDiscRate !== null ? `${teamDiscRate}%` : '—'}
-              </div>
-              {discRateDelta !== null && <div className="mt-1"><Delta value={discRateDelta} /></div>}
-            </Card>
-            <Card>
-              <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo show rate</div>
-              <div className="mono text-[28px] font-extrabold text-ink leading-none">
-                {teamDemoRate !== null ? `${teamDemoRate}%` : '—'}
-              </div>
-              {demoRateDelta !== null && <div className="mt-1"><Delta value={demoRateDelta} /></div>}
-            </Card>
+      {/* Hero: 3 Speedometers — full width */}
+      <Card className="flex flex-col" style={{ padding: 24 }}>
+        <div className="flex items-end justify-center gap-4">
+          {/* MRR */}
+          <div className="w-1/4 shrink-0 flex flex-col items-center">
+            <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-ink-2">
+              MRR
+            </div>
+            <Speedometer
+              value={periodMrr}
+              milestones={[5000, 10000, 20000, 50000, 100000]}
+              max={100000}
+              size={320}
+              formatter={(v) => v === 0 ? '$0' : `$${Math.round(v / 1000)}k`}
+              minorStep={10000}
+              showMinorLabels
+              startAngle={180}
+              sweepAngle={180}
+              showValue={false}
+              pillOffsetY={-40}
+              pill={<Pill color="#00D4FF">{fmtMoney(periodMrr)}</Pill>}
+            />
           </div>
+          {/* Clients — center, largest */}
+          <div className="w-[35%] shrink-0 flex flex-col items-center">
+            <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-ink-2">
+              Active Clients
+            </div>
+            <Speedometer
+              value={periodClientCount}
+              milestones={[10, 20, 40, 80, 100, 160]}
+              max={160}
+              size={420}
+              minorStep={10}
+              showMinorLabels
+              highlightedTicks={[50, 100]}
+              radiusRatio={0.36}
+              valueFontSize={64}
+              valueOffsetY={12}
+              pillOffsetY={-21}
+              zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#8B5CF6', '#00E5A0']}
+              pill={<Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(initialMrr / activeClientCount)) : '—'}</Pill>}
+            />
+          </div>
+          {/* ARR */}
+          <div className="w-1/4 shrink-0 flex flex-col items-center">
+            <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-ink-2">
+              ARR
+            </div>
+            <Speedometer
+              value={arr}
+              milestones={[50000, 100000, 200000, 500000, 800000, 1000000]}
+              max={1000000}
+              size={320}
+              formatter={(v) => v === 0 ? '$0' : v >= 1000000 ? '$1M' : `$${Math.round(v / 1000)}k`}
+              minorStep={100000}
+              showMinorLabels
+              valueFontSize={42}
+              startAngle={180}
+              sweepAngle={180}
+              showValue={false}
+              pillOffsetY={-40}
+              zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#8B5CF6', '#00E5A0']}
+              pill={<Pill color="#00D4FF">{fmtMoney(arr)}</Pill>}
+            />
+          </div>
+        </div>
+      </Card>
 
-          {/* Conversion pipeline */}
-          <Card className="h-full">
-            <SectionTitle>Conversion pipeline · {label.toLowerCase()}</SectionTitle>
-            {(() => {
-              const mult = range === 'month' ? 4 : range === 'day' ? 1 / 5 : 1
-              const repsCount = reps.length || 1
-              const weeklyTargets = tgt || { dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 }
-
-              // Disc + Demo reflect ATTENDED calendar meetings for the period, not booked.
-              const teamAttendedDisc = periodShowRates
-                .filter((r) => r.activity_type === 'disc')
-                .reduce((sum, r) => sum + r.attended, 0)
-              const teamAttendedDemo = periodShowRates
-                .filter((r) => r.activity_type === 'demo')
-                .reduce((sum, r) => sum + r.attended, 0)
-
-              const metrics = [
-                {
-                  key: 'dials',
-                  label: 'Dials',
-                  short: 'Dials',
-                  value: t.dials ?? 0,
-                  color: '#00D4FF',
-                  target: (weeklyTargets.dials ?? 250) * mult * repsCount,
-                },
-                {
-                  key: 'conv',
-                  label: 'Conv',
-                  short: 'Conv',
-                  value: t.dm_conv ?? 0,
-                  color: '#8B5CF6',
-                  target: (weeklyTargets.dm_conv ?? 50) * mult * repsCount,
-                },
-                {
-                  key: 'disc',
-                  label: 'Disc ATT',
-                  short: 'Disc ATT',
-                  value: teamAttendedDisc,
-                  color: '#FFB800',
-                  target: (weeklyTargets.disc ?? 20) * mult * repsCount,
-                },
-                {
-                  key: 'demo',
-                  label: 'Demo ATT',
-                  short: 'Demo ATT',
-                  value: teamAttendedDemo,
-                  color: '#FF3D9A',
-                  target: (weeklyTargets.demo ?? 7) * mult * repsCount,
-                },
-                {
-                  key: 'closed',
-                  label: 'Closed',
-                  short: 'Closed',
-                  value: closedCount,
-                  color: '#00E5A0',
-                  target: (weeklyTargets.closed ?? 3) * mult * repsCount,
-                },
-              ]
-
-              return <ActivityPipelineCard title="Conversion goals" metrics={metrics} showConversionRates={false} />
-            })()}
+      {/* Activity KPIs + ARR growth */}
+      <div className="grid grid-cols-[1.5fr_1fr] gap-3.5 items-stretch">
+        <div className="grid grid-cols-4 gap-3.5">
+          <Card><KPI label="Dials"         value={t.dials  ?? 0} target={tgt?.dials}  color="#00D4FF" formatter={fmtNum} delta={delta(t.dials ?? 0, pt.dials ?? 0)} /></Card>
+          <Card><KPI label="Voicemails"    value={t.vm     ?? 0}                       color="#5A6685" formatter={fmtNum} delta={delta(t.vm    ?? 0, pt.vm    ?? 0)} /></Card>
+          <Card><KPI label="Conversations" value={t.dm_conv ?? 0} target={tgt?.dm_conv} color="#8B5CF6" formatter={fmtNum} delta={delta(t.dm_conv ?? 0, pt.dm_conv ?? 0)} /></Card>
+          <Card><KPI label="Discovery"     value={t.disc   ?? 0} target={tgt?.disc}   color="#FFB800" formatter={fmtNum} delta={delta(t.disc  ?? 0, pt.disc  ?? 0)} /></Card>
+          <Card><KPI label="Demo"          value={t.demo   ?? 0} target={tgt?.demo}   color="#FF3D9A" formatter={fmtNum} delta={delta(t.demo  ?? 0, pt.demo  ?? 0)} /></Card>
+          <Card><KPI label="Closed"        value={closedCount}    target={tgt?.closed} color="#00E5A0" formatter={fmtNum} delta={delta(closedCount, prevClosedCount)} /></Card>
+          <Card>
+            <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FFB800] mb-1">Disc show rate</div>
+            <div className="mono text-[28px] font-extrabold text-ink leading-none">
+              {teamDiscRate !== null ? `${teamDiscRate}%` : '—'}
+            </div>
+            {discRateDelta !== null && <div className="mt-1"><Delta value={discRateDelta} /></div>}
+          </Card>
+          <Card>
+            <div className="text-[10px] font-bold uppercase tracking-[0.8px] text-[#FF3D9A] mb-1">Demo show rate</div>
+            <div className="mono text-[28px] font-extrabold text-ink leading-none">
+              {teamDemoRate !== null ? `${teamDemoRate}%` : '—'}
+            </div>
+            {demoRateDelta !== null && <div className="mt-1"><Delta value={demoRateDelta} /></div>}
           </Card>
         </div>
-
-        {/* Right: Speedometer + ARR */}
-        <Card className="flex flex-col items-center" style={{ padding: 20 }}>
-          <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold self-start mb-1">
-            {range === 'all' ? 'Active clients' : `Active clients · ${label.toLowerCase()}`}
-          </div>
-          <Speedometer value={periodClientCount} milestones={[10, 20, 40, 80, 100]} max={100} size={310} />
-          <div className="w-full border-t border-line mt-4 pt-4">
-            <div className="mx-auto w-1/2 flex flex-col items-center justify-center border-b border-line mb-2">
-              <div className="text-[11px] text-ink-2 uppercase tracking-[0.6px] font-semibold mb-1.5">Annual Recurring Revenue</div>
-              <div className="mono text-[34px] font-extrabold text-ink tracking-[-0.5px] leading-none">{fmtMoney(arr)}</div>
-              <div className="flex items-center gap-2.5 mt-2">
-                <Pill color="#00E5A0">MRR {fmtMoney(initialMrr)}</Pill>
-                <Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(initialMrr / activeClientCount)) : '—'}</Pill>
-              </div>
-            </div>
-          </div>
-          <div className="w-full mt-4 pt-1">
-            <div className="text-[10px] text-ink-3 uppercase tracking-[0.8px] font-semibold mb-2">ARR growth · projected</div>
+        <Card className="flex flex-col">
+          <SectionTitle>ARR growth · projected</SectionTitle>
+          <div className="flex-1 min-h-0">
             <ArrGrowthChart
               actual={arrGrowth.actual}
               projected={arrGrowth.projected}
@@ -844,12 +832,36 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
         </Card>
       </div>
 
+      {/* Conversion pipeline */}
+      <Card>
+        <SectionTitle>Conversion pipeline · {label.toLowerCase()}</SectionTitle>
+        {(() => {
+          const mult = range === 'month' ? 4 : range === 'day' ? 1 / 5 : 1
+          const repsCount = reps.length || 1
+          const weeklyTargets = tgt || { dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 }
+          const teamAttendedDisc = periodShowRates
+            .filter((r) => r.activity_type === 'disc')
+            .reduce((sum, r) => sum + r.attended, 0)
+          const teamAttendedDemo = periodShowRates
+            .filter((r) => r.activity_type === 'demo')
+            .reduce((sum, r) => sum + r.attended, 0)
+          const metrics = [
+            { key: 'dials',  label: 'Dials',    short: 'Dials',    value: t.dials ?? 0,    color: '#00D4FF', target: (weeklyTargets.dials ?? 250) * mult * repsCount },
+            { key: 'conv',   label: 'Conv',     short: 'Conv',     value: t.dm_conv ?? 0,  color: '#8B5CF6', target: (weeklyTargets.dm_conv ?? 50) * mult * repsCount },
+            { key: 'disc',   label: 'Disc ATT', short: 'Disc ATT', value: teamAttendedDisc, color: '#FFB800', target: (weeklyTargets.disc ?? 20) * mult * repsCount },
+            { key: 'demo',   label: 'Demo ATT', short: 'Demo ATT', value: teamAttendedDemo, color: '#FF3D9A', target: (weeklyTargets.demo ?? 7) * mult * repsCount },
+            { key: 'closed', label: 'Closed',   short: 'Closed',   value: closedCount,      color: '#00E5A0', target: (weeklyTargets.closed ?? 3) * mult * repsCount },
+          ]
+          return <ActivityPipelineCard title="Conversion goals" metrics={metrics} showConversionRates={false} />
+        })()}
+      </Card>
+
       {/* Trend + Funnel */}
       <div className="grid grid-cols-[1.6fr_1fr] gap-3.5">
         <Card>
           <SectionTitle right={
             <div className="flex gap-3.5 text-[11px] text-ink-2">
-              {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FFB800', l: 'Disc' }, { c: '#FF3D9A', l: 'Demos' }].map((x) => (
+              {[{ c: '#00D4FF', l: 'Dials' }, { c: '#8B5CF6', l: 'Conv' }, { c: '#FFB800', l: 'Disc' }, { c: '#FF3D9A', l: 'Demos' }, { c: '#00E5A0', l: 'Closes' }].map((x) => (
                 <span key={x.l} className="inline-flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full" style={{ background: x.c }} />{x.l}
                 </span>
@@ -863,10 +875,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
               { name: 'Conv',  color: '#8B5CF6', data: trendData.map((w) => w.conv) },
               { name: 'Disc',  color: '#FFB800', data: trendData.map((w) => w.disc * 4) },
               { name: 'Demos', color: '#FF3D9A', data: trendData.map((w) => w.demo * 8) },
+              { name: 'Closes', color: '#00E5A0', data: trendData.map((w) => w.closed * 16) },
             ]}
             height={240}
           />
-          <div className="mono text-[10px] text-ink-3 mt-2">* disc 4x, demos 8x scale for trend visibility</div>
+          <div className="mono text-[10px] text-ink-3 mt-2">* disc 4x, demos 8x, closes 16x scale for trend visibility</div>
         </Card>
 
         <Card className="flex flex-col">
@@ -1034,14 +1047,19 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
             prevMrr = weekMrr
           }
 
-          const minChange = Math.min(...mrrChanges.map((d) => d.change))
-          const maxChange = Math.max(...mrrChanges.map((d) => d.change))
-          const range_ = maxChange - minChange || 1
+          const dataMin = Math.min(...mrrChanges.map((d) => d.change))
+          const dataMax = Math.max(...mrrChanges.map((d) => d.change))
+          const baseMin = Math.min(0, dataMin)
+          const baseMax = Math.max(0, dataMax)
+          const dataSpan = baseMax - baseMin || 1
+          const minChange = baseMin - dataSpan * 0.08
+          const maxChange = baseMax + dataSpan * 0.08
+          const range_ = maxChange - minChange
           const avgChange = mrrChanges.reduce((sum, d) => sum + d.change, 0) / mrrChanges.length
 
           const svgH = 260
           const svgW = 1000
-          const padding = { top: 20, right: 20, bottom: 40, left: 60 }
+          const padding = { top: 24, right: 24, bottom: 44, left: 100 }
           const plotW = svgW - padding.left - padding.right
           const plotH = svgH - padding.top - padding.bottom
 
@@ -1065,24 +1083,29 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets, initial
                     const value = Math.round(maxChange - (i / 4) * range_)
                     return (
                       <g key={i}>
-                        <line x1={padding.left} y1={y} x2={svgW - padding.right} y2={y} stroke="var(--line)" strokeWidth="1" opacity="0.3" />
-                        <text x={padding.left - 10} y={y} textAnchor="end" dominantBaseline="middle" className="mono text-[10px]" fill="var(--ink-3)">
+                        <line x1={padding.left} y1={y} x2={svgW - padding.right} y2={y} stroke="#2D3852" strokeWidth="1" strokeDasharray="3 4" />
+                        <text x={padding.left - 12} y={y} textAnchor="end" dominantBaseline="middle" fontSize="11" fontWeight="600" fontFamily="JetBrains Mono, monospace" fill="#A7B1C9">
                           {fmtMoney(value)}
                         </text>
                       </g>
                     )
                   })}
                   {/* X axis labels */}
+                  <line x1={padding.left} y1={padding.top + plotH} x2={svgW - padding.right} y2={padding.top + plotH} stroke="#3A4661" strokeWidth="1" />
                   {points.map((p, i) => (
-                    <text key={i} x={p.x} y={svgH - 10} textAnchor="middle" className="mono text-[9px]" fill="var(--ink-3)">
-                      {p.label}
-                    </text>
+                    <g key={i}>
+                      <line x1={p.x} y1={padding.top} x2={p.x} y2={padding.top + plotH} stroke="#252F47" strokeWidth="1" strokeDasharray="3 5" />
+                      <line x1={p.x} y1={padding.top + plotH} x2={p.x} y2={padding.top + plotH + 5} stroke="#5A6685" strokeWidth="1" />
+                      <text x={p.x} y={svgH - 10} textAnchor="middle" fontSize="10" fontWeight="600" fontFamily="JetBrains Mono, monospace" fill="#A7B1C9">
+                        {p.label}
+                      </text>
+                    </g>
                   ))}
                   {/* Average line */}
                   {(() => {
                     const avgY = padding.top + ((maxChange - avgChange) / range_) * plotH
                     return (
-                      <line x1={padding.left} y1={avgY} x2={svgW - padding.right} y2={avgY} stroke="var(--ink-3)" strokeWidth="1.5" strokeDasharray="5,4" opacity="0.5" />
+                      <line x1={padding.left} y1={avgY} x2={svgW - padding.right} y2={avgY} stroke="#74809B" strokeWidth="1.5" strokeDasharray="5,4" opacity="0.9" />
                     )
                   })()}
                   {/* Line */}
