@@ -189,7 +189,7 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
   return b.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
-export function TeamPerformance({ reps: allReps, clients, feed, targets: _targets, initialMrr, activeClientCount, onClientUpdated }: TeamPerformanceProps) {
+export function TeamPerformance({ reps: allReps, clients, feed, targets: _targets, initialMrr, activeClientCount: _activeClientCount, onClientUpdated }: TeamPerformanceProps) {
   const [mounted, setMounted] = useState(false)
   const [showAllWeeksModal, setShowAllWeeksModal] = useState(false)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
@@ -296,6 +296,16 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
   )
 
   const closedCount = filteredClients.length
+
+  /** MRR closed/onboarded in the selected period, by owning rep. */
+  const periodMrrByRep = useMemo(() => {
+    const byRep: Record<string, number> = {}
+    for (const c of filteredClients) {
+      if (!c.owner_id) continue
+      byRep[c.owner_id] = (byRep[c.owner_id] ?? 0) + c.mrr
+    }
+    return byRep
+  }, [filteredClients])
 
   const allTimeRepTotals = useMemo(() => {
     const rt: Record<string, Record<string, number>> = {}
@@ -825,7 +835,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               valueOffsetY={12}
               pillOffsetY={-21}
               zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#00E5A0']}
-              pill={<Pill color="#00D4FF">ACV {activeClientCount > 0 ? fmtMoney(Math.round(initialMrr / activeClientCount)) : '—'}</Pill>}
+              pill={<Pill color="#00D4FF">ACV {periodClientCount > 0 ? fmtMoney(Math.round(periodMrr / periodClientCount)) : '—'}</Pill>}
             />
           </div>
           {/* ARR */}
@@ -1343,6 +1353,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                   { label: 'Demo',           color: '#FF3D9A', hl: false },
                   { label: 'Demo Show',      color: '#FF3D9A', hl: false },
                   { label: 'Closed',         color: '#00E5A0', hl: true  },
+                  { label: 'MRR',            color: '#00D4FF', hl: true  },
+                  { label: 'ARR',            color: '#00E5A0', hl: true  },
                 ] as const).map((col) => (
                   <th
                     key={col.label}
@@ -1363,13 +1375,15 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                 const disc   = m.disc   ?? 0
                 const demo   = m.demo   ?? 0
                 const closed = m.closed ?? 0
+                const periodMrr = periodMrrByRep[rep.id] ?? 0
+                const periodArr = periodMrr * 12
                 const cvRate   = dials ? conv   / dials * 100 : 0
                 const discRate = conv  ? disc   / conv  * 100 : 0
                 const demoRate = disc  ? demo   / disc  * 100 : 0
                 const winRate  = demo  ? closed / demo  * 100 : 0
                 const discShow = repShowRate(rep.id, 'disc')
                 const demoShow = repShowRate(rep.id, 'demo')
-                if (dials + conv + vm + disc + demo + closed === 0) return null
+                if (dials + conv + vm + disc + demo + closed + periodMrr === 0) return null
 
                 function showColor(rate: number) {
                   return rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
@@ -1434,12 +1448,22 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                       <span className="mono text-[12px] font-bold text-mint">{closed || '—'}</span>
                       {winRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{winRate.toFixed(0)}%</span>}
                     </td>
+                    <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
+                      <span className="mono text-[12px] font-bold text-ink">
+                        {periodMrr > 0 ? fmtMoney(periodMrr) : '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
+                      <span className="mono text-[12px] font-bold text-mint">
+                        {periodArr > 0 ? fmtMoney(periodArr) : '—'}
+                      </span>
+                    </td>
                   </tr>
                 )
               })}
               {reps.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
+                  <td colSpan={12} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
                 </tr>
               )}
             </tbody>
