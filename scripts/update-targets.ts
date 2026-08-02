@@ -5,7 +5,8 @@ import { eq } from 'drizzle-orm'
 async function updateTargets() {
   const result = await db
     .update(targets)
-    .set({ dials: 250, dm_conv: 50, disc: 20, demo: 7, closed: 3 })
+    // onb = 10/week for the whole team (not per person — LiveTracker skips headcount mult)
+    .set({ dials: 250, dm_conv: 50, disc: 20, demo: 7, onb: 10, closed: 3 })
     .where(eq(targets.period, 'per_person'))
     .returning()
 

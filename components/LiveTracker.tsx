@@ -3,7 +3,15 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Rep, Client, ActivityLogEntry, Target, CalendarEvent, CalendarIntent } from '@/lib/types'
 import { METRIC_GROUPS, ALL_METRICS, KEY_METRICS } from '@/lib/constants'
-import { relativeTime, getPeriodBounds, getPeriodLabel, loggedAtEndOfDayET, type LiveRange } from '@/lib/helpers'
+import {
+  relativeTime,
+  getPeriodBounds,
+  getMeetingPeriodBounds,
+  getPeriodLabel,
+  loggedAtEndOfDayET,
+  toLocalISO,
+  type LiveRange,
+} from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
 import { Card, Pill, SectionTitle, TargetBar, Segmented } from './ui/primitives'
@@ -18,6 +26,7 @@ import {
   logClosedDealAction,
   logCalendarEventAction,
   getCalendarCompaniesAction,
+  getOnboardingPricesAction,
   getCalendarEventsForDateRangeAction,
   getCalendarEventsForDateRangeAllRepsAction,
 } from '@/app/actions'
@@ -42,18 +51,23 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
   const [countsByRep, setCountsByRep] = useState<Record<string, Record<string, number>>>({})
   const [now, setNow] = useState(new Date())
   const [showClosedModal, setShowClosedModal] = useState(false)
-  const [calendarModal, setCalendarModal] = useState<'disc' | 'demo' | null>(null)
+  const [calendarModal, setCalendarModal] = useState<'disc' | 'demo' | 'onb' | null>(null)
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([])
   const [calendarCompanies, setCalendarCompanies] = useState<string[]>([])
+  const [onboardingPrices, setOnboardingPrices] = useState<Record<string, number>>({})
   const [range, setRange] = useState<LiveRange>('day')
   const [offset, setOffset] = useState(0)
 
   const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
+  const meetingBounds = useMemo(() => getMeetingPeriodBounds(range, offset), [range, offset])
   const isHistorical = offset > 0
   const label = getPeriodLabel(range, offset, bounds)
 
-  const startISO = bounds.start.toISOString().slice(0, 10)
-  const endISO   = bounds.end.toISOString().slice(0, 10)
+  // Activity KPIs use weekday bounds; meetings use full calendar week/month (local dates, not UTC).
+  const startISO = toLocalISO(bounds.start)
+  const endISO   = toLocalISO(bounds.end)
+  const meetingStartISO = toLocalISO(meetingBounds.start)
+  const meetingEndISO   = toLocalISO(meetingBounds.end)
 
   useEffect(() => {
     let cancelled = false
@@ -63,26 +77,32 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     return () => { cancelled = true }
   }, [startISO, endISO])
 
-  // Load calendar companies and today's events
+  // Load calendar companies, onboarding prices, and today's events
   useEffect(() => {
     getCalendarCompaniesAction().then(setCalendarCompanies)
+    getOnboardingPricesAction().then(setOnboardingPrices)
   }, [])
+
+  function refreshCompanyData() {
+    getCalendarCompaniesAction().then(setCalendarCompanies)
+    getOnboardingPricesAction().then(setOnboardingPrices)
+  }
 
   useEffect(() => {
     let cancelled = false
     if (activeRep === 'team') {
-      getCalendarEventsForDateRangeAllRepsAction(startISO, endISO).then((events) => {
+      getCalendarEventsForDateRangeAllRepsAction(meetingStartISO, meetingEndISO).then((events) => {
         if (!cancelled) setTodayEvents(events)
       })
     } else if (activeRep) {
-      getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then((events) => {
+      getCalendarEventsForDateRangeAction(activeRep, meetingStartISO, meetingEndISO).then((events) => {
         if (!cancelled) setTodayEvents(events)
       })
     } else {
       setTodayEvents([])
     }
     return () => { cancelled = true }
-  }, [activeRep, startISO, endISO])
+  }, [activeRep, meetingStartISO, meetingEndISO])
 
   function handleRangeChange(v: string) {
     setRange(v as LiveRange)
@@ -128,6 +148,10 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
   function getTarget(key: string, forTeam: boolean): number {
     if (!perPersonTarget) return 0
     const weekly = (perPersonTarget as Record<string, unknown>)[key] as number ?? 0
+    // Onboarding is a team-wide weekly target (not multiplied by headcount)
+    if (key === 'onb') {
+      return Math.round(weekly * periodMult * 10) / 10
+    }
     const repMult = forTeam ? activeReps.length : 1
     return Math.round(weekly * repMult * periodMult * 10) / 10
   }
@@ -165,7 +189,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     const current = (countsByRep[activeRep] ?? {})[metricKey] ?? 0
     if (current <= 0) return
 
-    // Undo the most recent activity log in this period. For disc/demo that also
+    // Undo the most recent activity log in this period. For disc/demo/onb that also
     // deletes the linked calendar row (via calendar_id), not "meetings scheduled today".
     setCountsByRep((prev) => ({
       ...prev,
@@ -200,7 +224,12 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     }
   }, [rep, activeRep, onDealClosed])
 
-  const logCalendarEvent = useCallback(async (data: { companyName: string; scheduledDate: string; intent: CalendarIntent }) => {
+  const logCalendarEvent = useCallback(async (data: {
+    companyName: string
+    scheduledDate: string
+    intent: CalendarIntent
+    monthlyPrice?: number
+  }) => {
     if (!rep || !calendarModal) return
     const type = calendarModal
     setCalendarModal(null)
@@ -216,33 +245,41 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
     const loggedAt = isHistorical ? loggedAtEndOfDayET(endISO) : undefined
 
     try {
-      await logCalendarEventAction({
+      const { event } = await logCalendarEventAction({
         repId:         activeRep,
         companyName:   data.companyName,
         activityType:  type,
         scheduledDate: data.scheduledDate,
         intent:        data.intent,
+        monthlyPrice:  data.monthlyPrice,
         loggedAt,
       })
 
-      // Refresh meetings list whenever the scheduled date falls in the viewed range
-      if (data.scheduledDate >= startISO && data.scheduledDate <= endISO) {
-        getCalendarEventsForDateRangeAction(activeRep, startISO, endISO).then(setTodayEvents)
+      // Show in meetings box when scheduled date is in the viewed meeting range
+      if (data.scheduledDate >= meetingStartISO && data.scheduledDate <= meetingEndISO) {
+        setTodayEvents((prev) => {
+          if (prev.some((e) => e.id === event.id)) return prev
+          return [...prev, event].sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date))
+        })
+      } else {
+        // Still refresh in case range edge cases / team view
+        getCalendarEventsForDateRangeAction(activeRep, meetingStartISO, meetingEndISO).then(setTodayEvents)
       }
 
-      getCalendarCompaniesAction().then(setCalendarCompanies)
+      refreshCompanyData()
     } catch {
       setCountsByRep((prev) => ({
         ...prev,
         [activeRep]: { ...(prev[activeRep] ?? {}), [type]: Math.max(0, ((prev[activeRep] ?? {})[type] ?? 0) - 1) },
       }))
     }
-  }, [rep, activeRep, calendarModal, startISO, endISO, isHistorical])
+  }, [rep, activeRep, calendarModal, meetingStartISO, meetingEndISO, isHistorical, endISO])
 
   function handleInc(metricKey: string) {
     if (metricKey === 'closed') { setShowClosedModal(true); return }
     if (metricKey === 'disc')   { setCalendarModal('disc'); return }
     if (metricKey === 'demo')   { setCalendarModal('demo'); return }
+    if (metricKey === 'onb')    { setCalendarModal('onb');  return }
     logActivity(metricKey)
   }
 
@@ -440,17 +477,21 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
         reps={reps}
         repId={activeRep}
         companies={calendarCompanies}
-        startDate={startISO}
-        endDate={endISO}
+        startDate={meetingStartISO}
+        endDate={meetingEndISO}
         allowAdd={!isTeam}
         onEventsChange={setTodayEvents}
-        onCompaniesUpdate={setCalendarCompanies}
+        onCompaniesUpdate={(companies) => {
+          setCalendarCompanies(companies)
+          getOnboardingPricesAction().then(setOnboardingPrices)
+        }}
       />
 
       {showClosedModal && rep && (
         <ClosedDealModal
           rep={rep}
           companies={calendarCompanies}
+          onboardingPrices={onboardingPrices}
           onSave={logClosedDeal}
           onCancel={() => setShowClosedModal(false)}
         />

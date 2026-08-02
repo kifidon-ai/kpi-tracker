@@ -73,6 +73,8 @@ export const calendar = pgTable('calendar', {
   intent:           text('intent').notNull().default('medium'),
   status:           text('status').notNull().default('scheduled'),
   reschedule_count: integer('reschedule_count').notNull().default(0),
+  /** Deal MRR set at onboarding booking; carried into Closed Won. */
+  monthly_price:    doublePrecision('monthly_price'),
   created_at:       timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (t) => [
   index('idx_calendar_rep').on(t.rep_id),

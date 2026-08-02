@@ -7,11 +7,13 @@ import { fmtMoney } from '@/lib/helpers'
 interface ClosedDealModalProps {
   rep: Rep
   companies: string[]
+  /** lowercased company name → monthly price from onboarding booking */
+  onboardingPrices?: Record<string, number>
   onSave: (data: { companyName: string; monthlyPrice: number; closedDate: string }) => void
   onCancel: () => void
 }
 
-export function ClosedDealModal({ rep, companies, onSave, onCancel }: ClosedDealModalProps) {
+export function ClosedDealModal({ rep, companies, onboardingPrices = {}, onSave, onCancel }: ClosedDealModalProps) {
   const today = new Date().toISOString().slice(0, 10)
   const [companyName, setCompanyName] = useState('')
   const [monthlyPrice, setMonthlyPrice] = useState('')
@@ -23,6 +25,13 @@ export function ClosedDealModal({ rep, companies, onSave, onCancel }: ClosedDeal
   const filtered = companies.filter((c) =>
     c.toLowerCase().includes(companyName.toLowerCase()) && c.toLowerCase() !== companyName.toLowerCase()
   )
+
+  function applyPriceForCompany(name: string) {
+    const price = onboardingPrices[name.toLowerCase()]
+    if (price != null && price > 0) {
+      setMonthlyPrice(String(Math.round(price)))
+    }
+  }
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -36,6 +45,16 @@ export function ClosedDealModal({ rep, companies, onSave, onCancel }: ClosedDeal
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  // Prefill when the typed name exactly matches an onboarding company
+  useEffect(() => {
+    const key = companyName.trim().toLowerCase()
+    if (!key) return
+    const matched = onboardingPrices[key]
+    if (matched != null && matched > 0) {
+      setMonthlyPrice(String(Math.round(matched)))
+    }
+  }, [companyName, onboardingPrices])
 
   const price = parseFloat(monthlyPrice) || 0
   const canSubmit = companyName.trim().length > 0 && price > 0
@@ -85,16 +104,26 @@ export function ClosedDealModal({ rep, companies, onSave, onCancel }: ClosedDeal
                 className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-line-2 overflow-hidden z-10 shadow-xl"
                 style={{ background: 'var(--card-bottom)' }}
               >
-                {filtered.slice(0, 6).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className="w-full text-left px-3.5 py-2 text-[13px] font-medium text-ink hover:bg-line transition-colors"
-                    onMouseDown={() => { setCompanyName(c); setShowDropdown(false) }}
-                  >
-                    {c}
-                  </button>
-                ))}
+                {filtered.slice(0, 6).map((c) => {
+                  const suggestPrice = onboardingPrices[c.toLowerCase()]
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      className="w-full text-left px-3.5 py-2 text-[13px] font-medium text-ink hover:bg-line transition-colors flex items-center justify-between gap-2"
+                      onMouseDown={() => {
+                        setCompanyName(c)
+                        applyPriceForCompany(c)
+                        setShowDropdown(false)
+                      }}
+                    >
+                      <span>{c}</span>
+                      {suggestPrice != null && suggestPrice > 0 && (
+                        <span className="mono text-[11px] text-mint shrink-0">{fmtMoney(suggestPrice)}/mo</span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>

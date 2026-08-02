@@ -4,7 +4,7 @@ import type { CalendarEvent } from '@/lib/types'
 
 interface CalendarDecrementPickerProps {
   events: CalendarEvent[]
-  activityType: 'disc' | 'demo'
+  activityType: 'disc' | 'demo' | 'onb'
   onSelect: (event: CalendarEvent) => void
   onCancel: () => void
 }
@@ -15,8 +15,8 @@ const INTENT_COLOR: Record<string, string> = {
   low:    '#FF5468',
 }
 
-const TYPE_LABEL: Record<string, string> = { disc: 'Discovery', demo: 'Demo' }
-const TYPE_COLOR: Record<string, string>  = { disc: '#FFD700',   demo: '#00E5A0' }
+const TYPE_LABEL: Record<string, string> = { disc: 'Discovery', demo: 'Demo', onb: 'Onboarding' }
+const TYPE_COLOR: Record<string, string>  = { disc: '#FFD700', demo: '#00E5A0', onb: '#3DD6C3' }
 
 export function CalendarDecrementPicker({ events, activityType, onSelect, onCancel }: CalendarDecrementPickerProps) {
   const accentColor = TYPE_COLOR[activityType]

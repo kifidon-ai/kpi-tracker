@@ -126,11 +126,27 @@ function addWeekdays(d: Date, delta: number): Date {
   return out
 }
 
-function toLocalISO(d: Date): string {
+export function toLocalISO(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+/** Date range for the meetings calendar — full calendar weeks/months (incl. weekends). */
+export function getMeetingPeriodBounds(range: LiveRange, offset: number): { start: Date; end: Date } {
+  const activity = getPeriodBounds(range, offset)
+  if (range === 'week') {
+    const end = new Date(activity.start)
+    end.setDate(activity.start.getDate() + 6) // Sunday
+    return { start: activity.start, end }
+  }
+  if (range === 'month') {
+    const start = new Date(activity.start.getFullYear(), activity.start.getMonth(), 1)
+    const end = new Date(activity.start.getFullYear(), activity.start.getMonth() + 1, 0)
+    return { start, end }
+  }
+  return activity
 }
 
 export function getPeriodBounds(range: LiveRange, offset: number): { start: Date; end: Date } {

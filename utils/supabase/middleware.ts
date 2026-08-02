@@ -13,6 +13,11 @@ function hasSupabaseSessionCookie(request: NextRequest): boolean {
 export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Jeffrey MCP: bearer-authenticated; skip Supabase session gate
+  if (pathname === "/api/mcp" || pathname.startsWith("/api/mcp/")) {
+    return NextResponse.next({ request });
+  }
+
   // Let /login and /auth/callback through always
   if (pathname === "/login" || pathname.startsWith("/auth/")) {
     // Fall through to getUser below so we can bounce already-logged-in users home

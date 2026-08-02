@@ -116,3 +116,35 @@ input, select, textarea { font-family: inherit; }
   font-family: var(--font-mono), monospace;
   font-feature-settings: "tnum";
 }
+
+@keyframes proj-delta-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.proj-delta-in {
+  display: inline-block;
+  animation: proj-delta-in 0.5s cubic-bezier(.25, .8, .25, 1) 0.35s both;
+}
+
+.proj-delta-in-centered {
+  display: inline-block;
+  animation: proj-delta-in-centered 0.5s cubic-bezier(.25, .8, .25, 1) 0.35s both;
+}
+
+@keyframes proj-delta-in-centered {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

@@ -12,7 +12,18 @@ import {
 import { Card, Segmented, Pill, SectionTitle } from './ui/primitives'
 import { BarChart, AreaTrendChart, Speedometer, ArrGrowthChart } from './charts'
 import { EditClientModal } from './EditClientModal'
-import { getActivityCountsAction, getTrendAction, getHourlyTrendAction, getAttendanceTrendAction, getDiscByHourAction, getDiscShowRateByDowAction, getShowRatesAction, getAttendedConversionsAction, updateClientCancelDateAction } from '@/app/actions'
+import {
+  getActivityCountsAction,
+  getTrendAction,
+  getHourlyTrendAction,
+  getAttendanceTrendAction,
+  getDiscByHourAction,
+  getDiscShowRateByDowAction,
+  getShowRatesAction,
+  getAttendedConversionsAction,
+  getPendingOnboardingsAction,
+  updateClientCancelDateAction,
+} from '@/app/actions'
 
 interface TeamPerformanceProps {
   reps: Rep[]
@@ -56,9 +67,16 @@ function getPeriodBounds(range: Range, offset: number): { start: Date; end: Date
   if (range === 'all') return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+  // offset > 0 = past, offset < 0 = future, offset = 0 = current
 
   if (range === 'day') {
-    // Weekend → last Friday; offset counts weekdays only (Fri ← → Mon)
+    if (offset <= 0) {
+      // Today + future: step by calendar day (incl. weekends) so you can project ahead
+      const d = new Date(today)
+      d.setDate(today.getDate() - offset)
+      return { start: d, end: d }
+    }
+    // Past: weekday-only (Fri ← → Mon)
     const d = addWeekdays(lastWeekday(today), -offset)
     return { start: d, end: d }
   }
@@ -69,18 +87,50 @@ function getPeriodBounds(range: Range, offset: number): { start: Date; end: Date
     thisMonday.setDate(today.getDate() - daysFromMonday)
     const start = new Date(thisMonday)
     start.setDate(thisMonday.getDate() - offset * 7)
-    // Week is Mon–Fri; current week caps at today (or Friday if weekend)
     const friday = new Date(start)
     friday.setDate(start.getDate() + 4)
+    // Current week caps activity at today; past/future weeks use full Mon–Fri
     const end = offset === 0 ? lastWeekday(today) : friday
     return { start, end }
   }
   // month
   const start = new Date(today.getFullYear(), today.getMonth() - offset, 1)
-  const end = offset === 0
-    ? lastWeekday(today)
-    : lastWeekday(new Date(today.getFullYear(), today.getMonth() - offset + 1, 0))
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() - offset + 1, 0)
+  const end = offset === 0 ? lastWeekday(today) : (offset < 0 ? monthEnd : lastWeekday(monthEnd))
   return { start, end }
+}
+
+/**
+ * Window used to count pending onboardings for gauge projections.
+ * Always cumulative from today through the end of the viewed period
+ * (e.g. viewing week+2 = this week's remaining + next week + that week).
+ */
+function getProjectionWindow(range: Range, offset: number, b: { start: Date; end: Date } | null): { start: string; end: string } | null {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayISO = toISO(today)
+
+  if (range === 'all') {
+    return { start: todayISO, end: '9999-12-31' }
+  }
+  if (!b) return null
+
+  let endISO: string
+  if (range === 'week') {
+    const weekEnd = new Date(b.start)
+    weekEnd.setDate(b.start.getDate() + 6) // Sunday
+    endISO = toISO(weekEnd)
+  } else if (range === 'month') {
+    const monthEnd = new Date(b.start.getFullYear(), b.start.getMonth() + 1, 0)
+    endISO = toISO(monthEnd)
+  } else {
+    endISO = toISO(b.end)
+  }
+
+  // Past periods have no forward projection
+  if (endISO < todayISO) return null
+
+  return { start: todayISO, end: endISO }
 }
 
 function toISO(d: Date) {
@@ -177,15 +227,22 @@ function periodLabel(range: Range, offset: number, b: { start: Date; end: Date }
     const yesterday = new Date(today)
     yesterday.setDate(today.getDate() - 1)
     if (toISO(b.start) === toISO(yesterday)) return 'Yesterday'
+    const tomorrow = new Date(today)
+    tomorrow.setDate(today.getDate() + 1)
+    if (toISO(b.start) === toISO(tomorrow)) return 'Tomorrow'
     return b.start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   }
   if (range === 'week') {
     if (offset === 0) return 'This week'
+    if (offset === -1) return 'Next week'
     const s = b.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const e = b.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    const weekEnd = new Date(b.start)
+    weekEnd.setDate(b.start.getDate() + 4)
+    const e = weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     return `${s} – ${e}`
   }
   if (offset === 0) return 'This month'
+  if (offset === -1) return 'Next month'
   return b.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
@@ -198,7 +255,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
   const [savingClient, setSavingClient] = useState(false)
   const [openClientMenu, setOpenClientMenu] = useState<string | null>(null)
   const [pipelineMetric, setPipelineMetric] = useState<
-    'dials' | 'vm' | 'conv' | 'disc' | 'disc_att' | 'demo' | 'demo_att' | 'closed' | null
+    'dials' | 'vm' | 'conv' | 'disc' | 'disc_att' | 'demo' | 'demo_att' | 'onb' | 'onb_att' | 'closed' | null
   >('dials')
   const [pipelineChartMode, setPipelineChartMode] = useState<'bar' | 'trend'>('bar')
   const clientMenuRef = useRef<HTMLDivElement>(null)
@@ -241,8 +298,17 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
     discToDemoConversions: number
     demoBooked: number
     demoAttended: number
-    demoToClosedConversions: number
+    demoToOnbConversions: number
+    onbBooked: number
+    onbAttended: number
+    onbToClosedConversions: number
   }>>({})
+  const [pendingOnboardings, setPendingOnboardings] = useState<{
+    company_name: string
+    monthly_price: number | null
+    scheduled_date: string
+    status: string
+  }[]>([])
 
   function handleRangeChange(v: string) {
     setRange(v as Range)
@@ -250,6 +316,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
   }
 
   const bounds = useMemo(() => getPeriodBounds(range, offset), [range, offset])
+  const projectionWindow = useMemo(() => getProjectionWindow(range, offset, bounds), [range, offset, bounds])
 
   // Fetch aggregated counts from server when period changes
   useEffect(() => {
@@ -290,6 +357,19 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, offset])
 
+  // Pending onboardings for gauge projections (week / month / future day)
+  useEffect(() => {
+    if (!projectionWindow) {
+      setPendingOnboardings([])
+      return
+    }
+    let cancelled = false
+    getPendingOnboardingsAction(projectionWindow.start, projectionWindow.end).then((rows) => {
+      if (!cancelled) setPendingOnboardings(rows)
+    })
+    return () => { cancelled = true }
+  }, [projectionWindow?.start, projectionWindow?.end])
+
   const filteredClients = useMemo(
     () => clients.filter((c) => c.since_date && inBoundsDate(c.since_date, bounds)),
     [clients, bounds],
@@ -321,9 +401,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
       const today = toISO(new Date())
       return clients.filter((c) => isClientActiveAsOf(c, today)).length
     }
-    // Snapshot at period end so day / week / month agree when looking at "now"
+    // Snapshot at period end; for future periods use today (same active set)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
     const endStr = toISO(bounds.end)
-    return clients.filter((c) => isClientActiveAsOf(c, endStr)).length
+    const asOf = endStr > toISO(today) ? toISO(today) : endStr
+    return clients.filter((c) => isClientActiveAsOf(c, asOf)).length
   }, [clients, bounds])
 
   // Trend window shifts with the global Day/Week/Month/All + arrow controls
@@ -405,6 +487,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
       demo: number
       demoAtt: number
       onb: number
+      onbAtt: number
       closed: number
     }> = []
 
@@ -429,6 +512,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
           demo: t.demo ?? 0,
           demoAtt: 0,
           onb: t.onb ?? 0,
+          onbAtt: 0,
           closed: t.closed ?? 0,
         })
       }
@@ -454,6 +538,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
           demo: t.demo ?? 0,
           demoAtt: attendance.filter((r) => r.activity_type === 'demo').reduce((sum, r) => sum + r.total, 0),
           onb: t.onb ?? 0,
+          onbAtt: attendance.filter((r) => r.activity_type === 'onb').reduce((sum, r) => sum + r.total, 0),
           closed: t.closed ?? 0,
         })
       }
@@ -484,6 +569,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
         demo: t.demo ?? 0,
         demoAtt: attendance.filter((r) => r.activity_type === 'demo').reduce((sum, r) => sum + r.total, 0),
         onb: t.onb ?? 0,
+        onbAtt: attendance.filter((r) => r.activity_type === 'onb').reduce((sum, r) => sum + r.total, 0),
         closed: t.closed ?? 0,
       })
     }
@@ -519,13 +605,40 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
 
   const periodMrr = useMemo(() => {
     if (!bounds) return initialMrr
+    // For future views, snapshot as of today (clients don't exist yet in the future)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
     const endStr = toISO(bounds.end)
+    const asOf = endStr > toISO(today) ? toISO(today) : endStr
     return clients
-      .filter((c) => isClientActiveAsOf(c, endStr))
+      .filter((c) => isClientActiveAsOf(c, asOf))
       .reduce((sum, c) => sum + c.mrr, 0)
   }, [clients, bounds, initialMrr])
 
   const arr = periodMrr * 12
+
+  /** Pending onboardings that aren't already active clients — feeds gauge projections. */
+  const onboardingProjection = useMemo(() => {
+    if (!projectionWindow || pendingOnboardings.length === 0) {
+      return { clients: 0, mrr: 0 }
+    }
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const asOf = toISO(today)
+    const activeNames = new Set(
+      clients
+        .filter((c) => isClientActiveAsOf(c, asOf))
+        .map((c) => c.name.toLowerCase()),
+    )
+    // One pending slot per company (latest wins if duplicates)
+    const byCompany = new Map<string, number>()
+    for (const row of pendingOnboardings) {
+      const key = row.company_name.toLowerCase()
+      if (activeNames.has(key)) continue
+      byCompany.set(key, row.monthly_price && row.monthly_price > 0 ? row.monthly_price : 0)
+    }
+    let mrr = 0
+    for (const price of byCompany.values()) mrr += price
+    return { clients: byCompany.size, mrr: Math.round(mrr) }
+  }, [pendingOnboardings, projectionWindow, clients])
 
   const arrGrowth = useMemo(() => {
     const sorted = [...clients]
@@ -687,7 +800,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
   }
 
   // Show rate helpers — derived from calendar table (all time)
-  function repShowRate(repId: string, type: 'disc' | 'demo') {
+  function repShowRate(repId: string, type: 'disc' | 'demo' | 'onb') {
     const row = showRates.find((r) => r.rep_id === repId && r.activity_type === type)
     if (!row || row.total === 0) return null
     return { attended: row.attended, total: row.total, rate: Math.round(row.attended / row.total * 100) }
@@ -776,12 +889,14 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               <button
                 onClick={() => setOffset((o) => o + 1)}
                 className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none"
+                title="Earlier"
               >←</button>
               <span className="text-[12px] text-ink-2 font-medium w-[130px] text-center">{label}</span>
               <button
-                onClick={() => setOffset((o) => Math.max(0, o - 1))}
-                disabled={offset === 0}
+                onClick={() => setOffset((o) => o - 1)}
+                disabled={offset <= -12}
                 className="w-7 h-7 flex items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-line transition-colors text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+                title="Later"
               >→</button>
             </div>
           )}
@@ -803,6 +918,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
             </div>
             <Speedometer
               value={periodMrr}
+              projectedValue={periodMrr + onboardingProjection.mrr}
+              projectedDelta={onboardingProjection.mrr}
               milestones={[5000, 10000, 20000, 50000, 80000, 100000]}
               max={100000}
               size={320}
@@ -812,9 +929,22 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               startAngle={180}
               sweepAngle={180}
               showValue={false}
-              pillOffsetY={-40}
+              pillOffsetY={-48}
               zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#8B5CF6', '#00E5A0']}
-              pill={<Pill color="#00D4FF">{fmtMoney(periodMrr)}</Pill>}
+              pill={
+                <div className="relative flex flex-col items-center" style={{ lineHeight: 1.2 }}>
+                  <Pill color="#00D4FF">{fmtMoney(periodMrr)}</Pill>
+                  {onboardingProjection.mrr > 0 && (
+                    <span
+                      key={`mrr-proj-${onboardingProjection.mrr}`}
+                      className="mono text-[11px] font-bold text-ink-3 leading-none proj-delta-in-centered"
+                      style={{ position: 'absolute', top: '100%', left: '50%', marginTop: 4, whiteSpace: 'nowrap' }}
+                    >
+                      +{fmtMoney(onboardingProjection.mrr)}
+                    </span>
+                  )}
+                </div>
+              }
             />
           </div>
           {/* Clients — center, largest */}
@@ -824,6 +954,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
             </div>
             <Speedometer
               value={periodClientCount}
+              projectedValue={periodClientCount + onboardingProjection.clients}
+              projectedDelta={onboardingProjection.clients}
               milestones={[10, 20, 40, 80, 160]}
               max={160}
               size={420}
@@ -845,6 +977,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
             </div>
             <Speedometer
               value={arr}
+              projectedValue={arr + onboardingProjection.mrr * 12}
+              projectedDelta={onboardingProjection.mrr * 12}
               milestones={[50000, 100000, 200000, 500000, 800000, 1000000]}
               max={1000000}
               size={320}
@@ -855,9 +989,22 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               startAngle={180}
               sweepAngle={180}
               showValue={false}
-              pillOffsetY={-40}
+              pillOffsetY={-48}
               zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#8B5CF6', '#00E5A0']}
-              pill={<Pill color="#00D4FF">{fmtMoney(arr)}</Pill>}
+              pill={
+                <div className="relative flex flex-col items-center" style={{ lineHeight: 1.2 }}>
+                  <Pill color="#00D4FF">{fmtMoney(arr)}</Pill>
+                  {onboardingProjection.mrr > 0 && (
+                    <span
+                      key={`arr-proj-${onboardingProjection.mrr}`}
+                      className="mono text-[11px] font-bold text-ink-3 leading-none proj-delta-in-centered"
+                      style={{ position: 'absolute', top: '100%', left: '50%', marginTop: 4, whiteSpace: 'nowrap' }}
+                    >
+                      +{fmtMoney(onboardingProjection.mrr * 12)}
+                    </span>
+                  )}
+                </div>
+              }
             />
           </div>
         </div>
@@ -869,11 +1016,15 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
         {(() => {
           const discBooked = t.disc ?? 0
           const demoBooked = t.demo ?? 0
+          const onbBooked = t.onb ?? 0
           const discAttended = periodShowRates
             .filter((r) => r.activity_type === 'disc')
             .reduce((sum, r) => sum + r.attended, 0)
           const demoAttended = periodShowRates
             .filter((r) => r.activity_type === 'demo')
+            .reduce((sum, r) => sum + r.attended, 0)
+          const onbAttended = periodShowRates
+            .filter((r) => r.activity_type === 'onb')
             .reduce((sum, r) => sum + r.attended, 0)
           const stages: Array<{
             key: NonNullable<typeof pipelineMetric>
@@ -888,10 +1039,12 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
             { key: 'disc_att', label: 'Discovery attended', value: discAttended, color: '#FFB800' },
             { key: 'demo', label: 'Demo booked', value: demoBooked, color: '#FF3D9A' },
             { key: 'demo_att', label: 'Demo attended', value: demoAttended, color: '#FF3D9A' },
+            { key: 'onb', label: 'Onb booked', value: onbBooked, color: '#3DD6C3' },
+            { key: 'onb_att', label: 'Onb attended', value: onbAttended, color: '#3DD6C3' },
             { key: 'closed', label: 'Closed', value: closedCount, color: '#00E5A0' },
           ]
           return (
-            <div className="mt-3 grid grid-cols-8 gap-2">
+            <div className="mt-3 grid grid-cols-5 xl:grid-cols-10 gap-2">
               {stages.map((stage, i) => {
                 const active = pipelineMetric === stage.key
                 return (
@@ -925,7 +1078,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
       {/* Metric / ARR chart */}
       <Card className="flex flex-col">
         {(() => {
-          const metricMeta: Record<NonNullable<typeof pipelineMetric>, { label: string; color: string; seriesKey: 'dials' | 'vm' | 'conv' | 'disc' | 'discAtt' | 'demo' | 'demoAtt' | 'closed' }> = {
+          const metricMeta: Record<NonNullable<typeof pipelineMetric>, { label: string; color: string; seriesKey: 'dials' | 'vm' | 'conv' | 'disc' | 'discAtt' | 'demo' | 'demoAtt' | 'onb' | 'onbAtt' | 'closed' }> = {
             dials: { label: 'Dials', color: '#00D4FF', seriesKey: 'dials' },
             vm: { label: 'Voice mail', color: '#5A6685', seriesKey: 'vm' },
             conv: { label: 'Conversations', color: '#8B5CF6', seriesKey: 'conv' },
@@ -933,6 +1086,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
             disc_att: { label: 'Discovery attended', color: '#FFB800', seriesKey: 'discAtt' },
             demo: { label: 'Demo booked', color: '#FF3D9A', seriesKey: 'demo' },
             demo_att: { label: 'Demo attended', color: '#FF3D9A', seriesKey: 'demoAtt' },
+            onb: { label: 'Onb booked', color: '#3DD6C3', seriesKey: 'onb' },
+            onb_att: { label: 'Onb attended', color: '#3DD6C3', seriesKey: 'onbAtt' },
             closed: { label: 'Closed', color: '#00E5A0', seriesKey: 'closed' },
           }
 
@@ -1352,6 +1507,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                   { label: 'Disc Show',      color: '#FFB800', hl: true  },
                   { label: 'Demo',           color: '#FF3D9A', hl: false },
                   { label: 'Demo Show',      color: '#FF3D9A', hl: false },
+                  { label: 'Onb',            color: '#3DD6C3', hl: false },
+                  { label: 'Onb Show',       color: '#3DD6C3', hl: false },
                   { label: 'Closed',         color: '#00E5A0', hl: true  },
                   { label: 'MRR',            color: '#00D4FF', hl: true  },
                   { label: 'ARR',            color: '#00E5A0', hl: true  },
@@ -1374,16 +1531,19 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                 const vm     = m.vm     ?? 0
                 const disc   = m.disc   ?? 0
                 const demo   = m.demo   ?? 0
+                const onb    = m.onb    ?? 0
                 const closed = m.closed ?? 0
                 const periodMrr = periodMrrByRep[rep.id] ?? 0
                 const periodArr = periodMrr * 12
                 const cvRate   = dials ? conv   / dials * 100 : 0
                 const discRate = conv  ? disc   / conv  * 100 : 0
                 const demoRate = disc  ? demo   / disc  * 100 : 0
-                const winRate  = demo  ? closed / demo  * 100 : 0
+                const onbRate  = demo  ? onb    / demo  * 100 : 0
+                const winRate  = onb   ? closed / onb   * 100 : 0
                 const discShow = repShowRate(rep.id, 'disc')
                 const demoShow = repShowRate(rep.id, 'demo')
-                if (dials + conv + vm + disc + demo + closed + periodMrr === 0) return null
+                const onbShow  = repShowRate(rep.id, 'onb')
+                if (dials + conv + vm + disc + demo + onb + closed + periodMrr === 0) return null
 
                 function showColor(rate: number) {
                   return rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
@@ -1444,6 +1604,18 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                         </>
                       ) : <span className="text-ink-3 text-[11px]">—</span>}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="mono text-[12px] font-semibold text-ink">{onb || '—'}</span>
+                      {onbRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{onbRate.toFixed(0)}%</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {onbShow ? (
+                        <>
+                          <span className="mono text-[13px] font-bold" style={{ color: showColor(onbShow.rate) }}>{onbShow.rate}%</span>
+                          <div className="mono text-[9px] text-ink-3">{onbShow.attended}/{onbShow.total}</div>
+                        </>
+                      ) : <span className="text-ink-3 text-[11px]">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-right bg-[#00E5A0]/[0.03]">
                       <span className="mono text-[12px] font-bold text-mint">{closed || '—'}</span>
                       {winRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{winRate.toFixed(0)}%</span>}
@@ -1463,7 +1635,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               })}
               {reps.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
+                  <td colSpan={14} className="px-4 py-8 text-center text-ink-3 text-[12px]">No reps yet</td>
                 </tr>
               )}
             </tbody>
@@ -1471,7 +1643,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
         </div>
       </Card>
 
-      {/* Discovery by hour */}
       {/* Conversion metrics per rep */}
       <Card>
         <div className="flex items-center justify-between mb-3">
@@ -1483,17 +1654,21 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
           <div className="flex-1 text-[#FFB800]">Disc booked → attended</div>
           <div className="flex-1 text-[#FFB800]">Attended → demo booked</div>
           <div className="flex-1 text-[#FF3D9A]">Demo booked → attended</div>
-          <div className="flex-1 text-[#FF3D9A]">Attended → closed</div>
+          <div className="flex-1 text-[#3DD6C3]">Attended → onb booked</div>
+          <div className="flex-1 text-[#3DD6C3]">Onb booked → attended</div>
+          <div className="flex-1 text-[#00E5A0]">Attended → closed</div>
         </div>
         <div className="flex flex-col gap-2">
           {reps.map((rep) => {
             const repConv = attendedConversions[rep.id]
-            if (!repConv || (repConv.discBooked === 0 && repConv.demoBooked === 0)) return null
+            if (!repConv || (repConv.discBooked === 0 && repConv.demoBooked === 0 && repConv.onbBooked === 0)) return null
 
             const discRate = repConv.discBooked > 0 ? (repConv.discAttended / repConv.discBooked) * 100 : 0
             const demoBookRate = repConv.discAttended > 0 ? (repConv.discToDemoConversions / repConv.discAttended) * 100 : 0
             const demoShowRate = repConv.demoBooked > 0 ? (repConv.demoAttended / repConv.demoBooked) * 100 : 0
-            const closeRate = repConv.demoAttended > 0 ? (repConv.demoToClosedConversions / repConv.demoAttended) * 100 : 0
+            const onbBookRate = repConv.demoAttended > 0 ? (repConv.demoToOnbConversions / repConv.demoAttended) * 100 : 0
+            const onbShowRate = repConv.onbBooked > 0 ? (repConv.onbAttended / repConv.onbBooked) * 100 : 0
+            const closeRate = repConv.onbAttended > 0 ? (repConv.onbToClosedConversions / repConv.onbAttended) * 100 : 0
 
             const barColor = (rate: number) => rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
 
@@ -1506,7 +1681,6 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                   <div className="mono text-[10px] font-semibold truncate">{rep.name.split(' ')[0]}</div>
                 </div>
 
-                {/* Metrics */}
                 <div className="flex-1">
                   <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.discAttended}/{repConv.discBooked}</div>
                   <div className="h-1.5 bg-[#FFB800]/20 rounded overflow-hidden">
@@ -1529,8 +1703,22 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                 </div>
 
                 <div className="flex-1">
-                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.demoToClosedConversions}/{repConv.demoAttended}</div>
-                  <div className="h-1.5 bg-[#FF3D9A]/20 rounded overflow-hidden">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.demoToOnbConversions}/{repConv.demoAttended}</div>
+                  <div className="h-1.5 bg-[#3DD6C3]/20 rounded overflow-hidden">
+                    <div className="h-full rounded-l" style={{ width: `${onbBookRate}%`, background: barColor(onbBookRate) }} />
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.onbAttended}/{repConv.onbBooked}</div>
+                  <div className="h-1.5 bg-[#3DD6C3]/20 rounded overflow-hidden">
+                    <div className="h-full rounded-l" style={{ width: `${onbShowRate}%`, background: barColor(onbShowRate) }} />
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <div className="text-[9px] font-bold text-ink mb-0.5">{repConv.onbToClosedConversions}/{repConv.onbAttended}</div>
+                  <div className="h-1.5 bg-[#00E5A0]/20 rounded overflow-hidden">
                     <div className="h-full rounded-l" style={{ width: `${closeRate}%`, background: barColor(closeRate) }} />
                   </div>
                 </div>
@@ -1635,6 +1823,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
         const charts = [
           { key: 'disc', title: 'Disc show rate by day', empty: 'No discovery show data yet', baseAccent: '#FFB800' },
           { key: 'demo', title: 'Demo show rate by day', empty: 'No demo show data yet', baseAccent: '#FF3D9A' },
+          { key: 'onb',  title: 'Onboarding show rate by day', empty: 'No onboarding show data yet', baseAccent: '#3DD6C3' },
         ] as const
 
         return charts.map(({ key, title, empty, baseAccent }) => {

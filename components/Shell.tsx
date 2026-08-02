@@ -97,7 +97,7 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
           const rep = repById[entry.rep_id]
           const sound: SoundType =
             entry.metric_key === 'closed' ? 'deal' :
-            entry.metric_key === 'demo' || entry.metric_key === 'disc' ? 'activity' :
+            entry.metric_key === 'demo' || entry.metric_key === 'disc' || entry.metric_key === 'onb' ? 'activity' :
             'task'
           notifyRef.current(
             rep ? `${rep.name.split(' ')[0]} · ${entry.label}` : entry.label,

@@ -337,6 +337,10 @@ export function Ring({ value, target, size = 120, stroke = 10, color = '#00D4FF'
 // --- Speedometer ---
 interface SpeedometerProps {
   value: number
+  /** Absolute projected total (value + pending). Draws a desaturated arc beyond `value`. */
+  projectedValue?: number
+  /** Shown as a small grey "+N" next to the center value when > 0. */
+  projectedDelta?: number
   milestones?: number[]
   max?: number
   size?: number
@@ -357,7 +361,53 @@ interface SpeedometerProps {
 
 const ZONE_COLORS = ['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#00E5A0', '#8B5CF6', '#E879F9', '#FCD34D']
 
-export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 100, size = 200, formatter = String, minorStep, pill, valueFontSize = 52, startAngle = 180, sweepAngle = 180, radiusRatio = 0.27, showValue = true, pillOffsetY = 0, showMinorLabels = false, zoneColors = ZONE_COLORS, valueOffsetY = 0, highlightedTicks = [] }: SpeedometerProps) {
+/** True desaturation in HSL — muted solid tint, not a translucent wash. */
+function desaturateHex(hex: string, satScale = 0.12, lightPull = 0.22): string {
+  const raw = hex.replace('#', '')
+  if (raw.length !== 6) return hex
+  let r = parseInt(raw.slice(0, 2), 16) / 255
+  let g = parseInt(raw.slice(2, 4), 16) / 255
+  let b = parseInt(raw.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let h = 0
+  let s = 0
+  const l = (max + min) / 2
+  const d = max - min
+  if (d > 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+      case g: h = ((b - r) / d + 2) / 6; break
+      default: h = ((r - g) / d + 4) / 6; break
+    }
+  }
+  s = Math.min(1, Math.max(0, s * satScale))
+  const l2 = Math.min(1, Math.max(0, l + (0.55 - l) * lightPull))
+
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  let rr: number, gg: number, bb: number
+  if (s === 0) {
+    rr = gg = bb = l2
+  } else {
+    const q = l2 < 0.5 ? l2 * (1 + s) : l2 + s - l2 * s
+    const p = 2 * l2 - q
+    rr = hue2rgb(p, q, h + 1 / 3)
+    gg = hue2rgb(p, q, h)
+    bb = hue2rgb(p, q, h - 1 / 3)
+  }
+  const to = (c: number) => Math.round(c * 255).toString(16).padStart(2, '0')
+  return `#${to(rr)}${to(gg)}${to(bb)}`
+}
+
+export function Speedometer({ value, projectedValue, projectedDelta = 0, milestones = [10, 20, 40, 80, 100], max = 100, size = 200, formatter = String, minorStep, pill, valueFontSize = 52, startAngle = 180, sweepAngle = 180, radiusRatio = 0.27, showValue = true, pillOffsetY = 0, showMinorLabels = false, zoneColors = ZONE_COLORS, valueOffsetY = 0, highlightedTicks = [] }: SpeedometerProps) {
   const backgroundGradientId = useId()
   const cx = size / 2
   const cy = size / 2
@@ -380,6 +430,28 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
   }
 
   const clamp = Math.min(Math.max(value, 0), max)
+  const projClamp = Math.min(Math.max(projectedValue ?? value, value), max)
+
+  // Animate projected tip from current value → projected (same easing as the solid bar)
+  const [animProj, setAnimProj] = useState(clamp)
+  const [projLabelOn, setProjLabelOn] = useState(false)
+  useEffect(() => {
+    setAnimProj(clamp)
+    setProjLabelOn(false)
+    let labelTimer: ReturnType<typeof setTimeout> | undefined
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setAnimProj(projClamp)
+        if (projectedDelta > 0) {
+          labelTimer = setTimeout(() => setProjLabelOn(true), 320)
+        }
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      if (labelTimer) clearTimeout(labelTimer)
+    }
+  }, [clamp, projClamp, projectedDelta])
 
   // Auto-derive zones from milestones with fixed color sequence
   const zones = milestones.map((to, i) => ({
@@ -402,12 +474,16 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
   const trackStart = pt(mathDeg(0), r)
   const trackEnd = pt(mathDeg(max), r)
   const isSemicircle = startDeg === 180 && Math.abs(sweepDeg) === 180
+  // Keep viewBox height stable so projected "+…" under pills never grows the card
   const viewHeight = isSemicircle ? cy + 24 : size
   const valueY = (isSemicircle ? cy - r * 0.68 : cy - r * 0.48) + valueOffsetY
   const pillY = (isSemicircle ? cy - r * 0.25 : cy + r * 0.48) + pillOffsetY
+  const pillBoxH = 56
+  const valueBoxH = Math.round(valueFontSize * 1.25)
+  const arcEase = '700ms cubic-bezier(.25,.8,.25,1)'
 
   return (
-    <svg width="100%" viewBox={`0 0 ${size} ${viewHeight}`} style={{ display: 'block' }}>
+    <svg width="100%" viewBox={`0 0 ${size} ${viewHeight}`} style={{ display: 'block', overflow: 'visible' }}>
       <defs>
         <linearGradient id={backgroundGradientId} x1="0" x2="0" y1="1" y2="0">
           <stop offset="0%" stopColor="var(--bg-1)" />
@@ -432,6 +508,27 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
       {zones.map((z) => (
         <path key={z.from} d={arcD(z.from, z.to)} fill="none" stroke={z.c + '55'} strokeWidth={sw} strokeLinecap="butt" />
       ))}
+      {/* Projected arc — dasharray grow, same easing as solid bar; desaturated per zone */}
+      {zones.map((z) => {
+        const totalLen = ((z.to - z.from) / max) * Math.abs(toRad(sweepDeg)) * r
+        const segFrom = Math.max(z.from, clamp)
+        const segTo = Math.min(z.to, animProj)
+        const hasSeg = animProj > clamp + 0.0001 && segTo > segFrom
+        const skipLen = hasSeg ? ((segFrom - z.from) / max) * Math.abs(toRad(sweepDeg)) * r : 0
+        const fillLen = hasSeg ? ((segTo - segFrom) / max) * Math.abs(toRad(sweepDeg)) * r : 0
+        return (
+          <path
+            key={`proj-${z.from}`}
+            d={arcD(z.from, z.to)}
+            fill="none"
+            stroke={desaturateHex(z.c)}
+            strokeWidth={sw}
+            strokeLinecap="butt"
+            strokeDasharray={`0 ${skipLen.toFixed(2)} ${fillLen.toFixed(2)} ${(totalLen + 1).toFixed(2)}`}
+            style={{ transition: `stroke-dasharray ${arcEase}` }}
+          />
+        )
+      })}
       {/* Progress arc */}
       {zones.map((z) => {
         const totalLen = ((z.to - z.from) / max) * Math.abs(toRad(sweepDeg)) * r
@@ -446,15 +543,31 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
             strokeLinecap="butt"
             opacity={0.9}
             strokeDasharray={`${filledLen.toFixed(2)} ${(totalLen + 1).toFixed(2)}`}
-            style={{ transition: 'stroke-dasharray 700ms cubic-bezier(.25,.8,.25,1)' }}
+            style={{ transition: `stroke-dasharray ${arcEase}` }}
           />
         )
       })}
-      {/* Tip circle */}
+      {/* Tip circle at projected end (desaturated) */}
+      {animProj > clamp && (
+        <g
+          transform={`rotate(${180 - startDeg + (animProj / max) * sweepDeg}, ${cx}, ${cy})`}
+          style={{ transition: `transform ${arcEase}` }}
+        >
+          <circle
+            cx={cx - r}
+            cy={cy}
+            r={sw / 2}
+            fill={desaturateHex(zones.find((z) => animProj < z.to)?.c ?? zones[zones.length - 1].c)}
+            opacity={1}
+            style={{ transition: 'fill 700ms ease' }}
+          />
+        </g>
+      )}
+      {/* Tip circle at current value */}
       {clamp > 0 && (
         <g
           transform={`rotate(${180 - startDeg + (clamp / max) * sweepDeg}, ${cx}, ${cy})`}
-          style={{ transition: 'transform 700ms cubic-bezier(.25,.8,.25,1)' }}
+          style={{ transition: `transform ${arcEase}` }}
         >
           <circle cx={cx - r} cy={cy} r={sw / 2} fill={zoneColor} opacity={0.9} style={{ transition: 'fill 700ms ease' }} />
         </g>
@@ -484,9 +597,52 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
           </g>
         )
       })}
-      {/* Center value */}
+      {/* Center value — flex so the big number slides left as "+N" expands in */}
       {showValue && (
-        <text x={cx} y={valueY} fill="var(--ink)" fontSize={valueFontSize} fontWeight="700" textAnchor="middle" dominantBaseline="middle" fontFamily="Inter, system-ui, sans-serif">{formatter(value)}</text>
+        <foreignObject
+          x={0}
+          y={valueY - valueBoxH / 2}
+          width={size}
+          height={valueBoxH}
+          style={{ overflow: 'visible' }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'baseline',
+              height: '100%',
+              fontFamily: 'Inter, system-ui, sans-serif',
+              lineHeight: 1,
+            }}
+          >
+            <span
+              style={{
+                color: 'var(--ink)',
+                fontSize: valueFontSize,
+                fontWeight: 700,
+                transition: 'transform 450ms cubic-bezier(.25,.8,.25,1)',
+              }}
+            >
+              {formatter(value)}
+            </span>
+            <span
+              style={{
+                color: 'var(--ink-3)',
+                fontSize: Math.round(valueFontSize * 0.38),
+                fontWeight: 700,
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                maxWidth: projLabelOn && projectedDelta > 0 ? 96 : 0,
+                opacity: projLabelOn && projectedDelta > 0 ? 1 : 0,
+                marginLeft: projLabelOn && projectedDelta > 0 ? 6 : 0,
+                transition: 'max-width 450ms cubic-bezier(.25,.8,.25,1), opacity 400ms ease, margin-left 450ms cubic-bezier(.25,.8,.25,1)',
+              }}
+            >
+              {projectedDelta > 0 ? `+${formatter(projectedDelta)}` : ''}
+            </span>
+          </div>
+        </foreignObject>
       )}
       {/* Needle */}
       <g
@@ -512,8 +668,8 @@ export function Speedometer({ value, milestones = [10, 20, 40, 80, 100], max = 1
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="6" fill={zoneColor} style={{ transition: 'fill 700ms ease' }} />
       <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)} r="2.5" fill="var(--bg-1)" />
       {pill && (
-        <foreignObject x="0" y={pillY} width={size} height="32">
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <foreignObject x="0" y={pillY} width={size} height={pillBoxH} style={{ overflow: 'visible' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', overflow: 'visible' }}>
             {pill}
           </div>
         </foreignObject>

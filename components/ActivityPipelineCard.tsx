@@ -61,17 +61,20 @@ export function ActivityPipelineCard({ title, metrics, showConversionRates = tru
         <div className="text-[10px] font-semibold uppercase tracking-[1px] text-ink-3 mb-3">
           {title}
         </div>
-        <div className="grid grid-cols-5 gap-3.5">
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}
+        >
           {metrics.map((m) => {
-            const progress = Math.min((m.value / m.target) * 100, 100)
+            const progress = m.target > 0 ? Math.min((m.value / m.target) * 100, 100) : 0
             const r = 32
             const circ = 2 * Math.PI * r
             const dashOffset = circ * (1 - progress / 100)
 
             return (
-              <div key={m.key} className="flex flex-col items-center gap-2.5 py-1">
-                <div className="relative w-[80px] h-[80px]">
-                  <svg width="80" height="80" viewBox="0 0 80 80" className="-rotate-90" style={{ display: 'block' }}>
+              <div key={m.key} className="flex flex-col items-center gap-2.5 py-1 min-w-0">
+                <div className="relative w-[72px] h-[72px]">
+                  <svg width="72" height="72" viewBox="0 0 80 80" className="-rotate-90" style={{ display: 'block' }}>
                     <circle cx="40" cy="40" r={r} fill="none" stroke="var(--line)" strokeWidth="6" />
                     <circle
                       cx="40" cy="40" r={r} fill="none"
@@ -86,7 +89,7 @@ export function ActivityPipelineCard({ title, metrics, showConversionRates = tru
                     <span className="mono text-[12px] font-bold text-ink leading-none">{Math.round(progress)}%</span>
                   </div>
                 </div>
-                <div className="text-[10px] uppercase tracking-[0.6px] font-bold" style={{ color: m.color }}>
+                <div className="text-[9px] uppercase tracking-[0.5px] font-bold text-center leading-tight" style={{ color: m.color }}>
                   {m.label}
                 </div>
               </div>

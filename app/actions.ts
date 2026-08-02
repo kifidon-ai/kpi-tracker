@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar, targets } from '@/db/schema'
-import { eq, and, gte, lte, desc, sql, asc, lt, ne, or, inArray } from 'drizzle-orm'
+import { eq, and, gte, lte, desc, sql, asc, lt, ne, or, inArray, isNotNull, gt } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
@@ -163,7 +163,7 @@ export async function getAttendanceTrendAction(startISO: string, endISO: string)
         gte(calendar.scheduled_date, startISO),
         lte(calendar.scheduled_date, endISO),
         eq(calendar.status, 'attended'),
-        inArray(calendar.activity_type, ['disc', 'demo']),
+        inArray(calendar.activity_type, ['disc', 'demo', 'onb']),
       ))
       .groupBy(calendar.scheduled_date, calendar.activity_type)
       .orderBy(calendar.scheduled_date)
@@ -185,7 +185,7 @@ export async function getDiscByHourAction() {
   return rows
 }
 
-/** Disc/demo show rate (attended / booked) by day of week. DOW: 0=Sun … 6=Sat. */
+/** Disc/demo/onboarding show rate (attended / booked) by day of week. DOW: 0=Sun … 6=Sat. */
 export async function getDiscShowRateByDowAction() {
   try {
     const rows = await db
@@ -197,7 +197,7 @@ export async function getDiscShowRateByDowAction() {
       })
       .from(calendar)
       .where(and(
-        inArray(calendar.activity_type, ['disc', 'demo']),
+        inArray(calendar.activity_type, ['disc', 'demo', 'onb']),
         lt(calendar.scheduled_date, sql`CURRENT_DATE`),
       ))
       .groupBy(calendar.activity_type, sql`extract(dow from ${calendar.scheduled_date})::int`)
@@ -377,11 +377,17 @@ export async function logCalendarEventAction(data: {
   activityType: string
   scheduledDate: string
   intent: string
+  monthlyPrice?: number
   loggedAt?: string
 }) {
-  const def = data.activityType === 'disc'
-    ? { label: `Discovery booked · ${data.companyName}`, icon: 'calendar', color: '#FFD700', metricKey: 'disc' }
-    : { label: `Demo booked · ${data.companyName}`,      icon: 'present',  color: '#00E5A0', metricKey: 'demo' }
+  const priceSuffix =
+    data.activityType === 'onb' && data.monthlyPrice && data.monthlyPrice > 0
+      ? ` · $${Math.round(data.monthlyPrice)}`
+      : ''
+  const def =
+    data.activityType === 'disc' ? { label: `Discovery booked · ${data.companyName}`,  icon: 'calendar',  color: '#FFD700', metricKey: 'disc' }
+    : data.activityType === 'onb' ? { label: `Onboarding booked · ${data.companyName}${priceSuffix}`, icon: 'checklist', color: '#3DD6C3', metricKey: 'onb' }
+    : { label: `Demo booked · ${data.companyName}`,       icon: 'present',   color: '#00E5A0', metricKey: 'demo' }
 
   // Calendar first so we can link the activity log via calendar_id
   const [event] = await db
@@ -393,6 +399,9 @@ export async function logCalendarEventAction(data: {
       scheduled_date: data.scheduledDate,
       intent:         data.intent,
       status:         'scheduled',
+      ...(data.monthlyPrice != null && data.monthlyPrice > 0
+        ? { monthly_price: data.monthlyPrice }
+        : {}),
     })
     .returning()
 
@@ -463,6 +472,60 @@ export async function getCalendarCompaniesAction() {
   } catch { return [] }
 }
 
+/** Pending onboarding meetings in a date range (still scheduled only — not attended/no-show). */
+export async function getPendingOnboardingsAction(startISO: string, endISO: string) {
+  try {
+    return await db
+      .select({
+        company_name:   calendar.company_name,
+        monthly_price:  calendar.monthly_price,
+        scheduled_date: calendar.scheduled_date,
+        status:         calendar.status,
+      })
+      .from(calendar)
+      .where(and(
+        eq(calendar.activity_type, 'onb'),
+        gte(calendar.scheduled_date, startISO),
+        lte(calendar.scheduled_date, endISO),
+        eq(calendar.status, 'scheduled'),
+      ))
+      .orderBy(asc(calendar.scheduled_date))
+  } catch {
+    return []
+  }
+}
+
+/** Latest onboarding deal price per company (lowercased key → monthly price). */
+export async function getOnboardingPricesAction() {
+  try {
+    const rows = await db
+      .select({
+        company_name:  calendar.company_name,
+        monthly_price: calendar.monthly_price,
+        scheduled_date: calendar.scheduled_date,
+        created_at:    calendar.created_at,
+      })
+      .from(calendar)
+      .where(and(
+        eq(calendar.activity_type, 'onb'),
+        isNotNull(calendar.monthly_price),
+        gt(calendar.monthly_price, 0),
+      ))
+      .orderBy(desc(calendar.scheduled_date), desc(calendar.created_at))
+
+    const map: Record<string, number> = {}
+    for (const r of rows) {
+      const key = r.company_name.toLowerCase()
+      if (map[key] === undefined && r.monthly_price != null) {
+        map[key] = r.monthly_price
+      }
+    }
+    return map
+  } catch {
+    return {}
+  }
+}
+
 export async function updateCalendarEventStatusAction(
   eventId: string,
   status: string,
@@ -522,6 +585,7 @@ export async function addCalendarEntryOnlyAction(data: {
   scheduledDate: string
   intent: string
   status?: string
+  monthlyPrice?: number
 }) {
   const [event] = await db
     .insert(calendar)
@@ -532,6 +596,9 @@ export async function addCalendarEntryOnlyAction(data: {
       scheduled_date: data.scheduledDate,
       intent:         data.intent,
       status:         data.status ?? 'scheduled',
+      ...(data.monthlyPrice != null && data.monthlyPrice > 0
+        ? { monthly_price: data.monthlyPrice }
+        : {}),
     })
     .returning()
   return { event }
@@ -555,8 +622,15 @@ export async function getAttendedConversionsAction() {
       .from(calendar)
       .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), pastOrResolved))
 
-    // All demos ever (including future) to check conversions from attended disc
+    const allOnb = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'onb'), pastOrResolved))
+    const attendedOnb = await db
+      .select()
+      .from(calendar)
+      .where(and(eq(calendar.activity_type, 'onb'), eq(calendar.status, 'attended'), pastOrResolved))
+
+    // All demos/onboardings ever (including future) to check conversions from prior stages
     const allDemosIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))
+    const allOnbIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'onb'))
 
     const closedDeals = await db.select().from(closed_deals)
 
@@ -566,7 +640,10 @@ export async function getAttendedConversionsAction() {
       discToDemoConversions: number
       demoBooked: number
       demoAttended: number
-      demoToClosedConversions: number
+      demoToOnbConversions: number
+      onbBooked: number
+      onbAttended: number
+      onbToClosedConversions: number
     }> = {}
 
     // Collect all rep IDs (filter out nulls)
@@ -574,6 +651,7 @@ export async function getAttendedConversionsAction() {
     allDisc.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
     allDemos.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
     attendedDemos.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
+    allOnb.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
     closedDeals.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
 
     for (const repId of repIds) {
@@ -582,6 +660,9 @@ export async function getAttendedConversionsAction() {
       const repAllDemos = allDemos.filter((d) => d.rep_id === repId)
       const repAttendedDemos = attendedDemos.filter((d) => d.rep_id === repId)
       const repAllDemosIncludingFuture = allDemosIncludingFuture.filter((d) => d.rep_id === repId)
+      const repAllOnb = allOnb.filter((d) => d.rep_id === repId)
+      const repAttendedOnb = attendedOnb.filter((d) => d.rep_id === repId)
+      const repAllOnbIncludingFuture = allOnbIncludingFuture.filter((d) => d.rep_id === repId)
       const repClosed = closedDeals.filter((d) => d.rep_id === repId)
 
       // Count attended disc that led to a demo booking anytime (including future demos)
@@ -593,11 +674,20 @@ export async function getAttendedConversionsAction() {
         if (hasDemo) discToDemoCount++
       }
 
-      // Count attended demo that led to a closed deal (same company)
-      let demoToClosedCount = 0
+      // Count attended demo that led to an onboarding booking (same company, on/after demo)
+      let demoToOnbCount = 0
       for (const demo of repAttendedDemos) {
-        const hasClosed = repClosed.some((deal) => deal.company_name === demo.company_name)
-        if (hasClosed) demoToClosedCount++
+        const hasOnb = repAllOnbIncludingFuture.some(
+          (onb) => onb.company_name === demo.company_name && onb.scheduled_date >= demo.scheduled_date,
+        )
+        if (hasOnb) demoToOnbCount++
+      }
+
+      // Count attended onboarding that led to a closed deal (same company)
+      let onbToClosedCount = 0
+      for (const onb of repAttendedOnb) {
+        const hasClosed = repClosed.some((deal) => deal.company_name === onb.company_name)
+        if (hasClosed) onbToClosedCount++
       }
 
       result[repId] = {
@@ -606,7 +696,10 @@ export async function getAttendedConversionsAction() {
         discToDemoConversions: discToDemoCount,
         demoBooked: repAllDemos.length,
         demoAttended: repAttendedDemos.length,
-        demoToClosedConversions: demoToClosedCount,
+        demoToOnbConversions: demoToOnbCount,
+        onbBooked: repAllOnb.length,
+        onbAttended: repAttendedOnb.length,
+        onbToClosedConversions: onbToClosedCount,
       }
     }
 

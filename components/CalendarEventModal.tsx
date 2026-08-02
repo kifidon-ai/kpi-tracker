@@ -4,12 +4,19 @@ import { useState, useRef, useEffect } from 'react'
 import type { Rep, CalendarIntent } from '@/lib/types'
 import { getTodayKeyET } from '@/lib/helpers'
 
+type MeetingType = 'disc' | 'demo' | 'onb'
+
 interface CalendarEventModalProps {
   rep: Rep
-  activityType: 'disc' | 'demo'
+  activityType: MeetingType
   companies: string[]
   defaultDate?: string
-  onSave: (data: { companyName: string; scheduledDate: string; intent: CalendarIntent }) => void
+  onSave: (data: {
+    companyName: string
+    scheduledDate: string
+    intent: CalendarIntent
+    monthlyPrice?: number
+  }) => void
   onCancel: () => void
 }
 
@@ -19,11 +26,18 @@ const INTENT_OPTIONS: { value: CalendarIntent; label: string; color: string }[] 
   { value: 'low',    label: 'Low',    color: '#FF5468' },
 ]
 
+const TYPE_META: Record<MeetingType, { label: string; color: string }> = {
+  disc: { label: 'Discovery booked',  color: '#FFD700' },
+  demo: { label: 'Demo booked',       color: '#00E5A0' },
+  onb:  { label: 'Onboarding booked', color: '#3DD6C3' },
+}
+
 export function CalendarEventModal({ rep, activityType, companies, defaultDate, onSave, onCancel }: CalendarEventModalProps) {
   const today = getTodayKeyET()
   const [companyName, setCompanyName]     = useState('')
   const [scheduledDate, setScheduledDate] = useState(defaultDate ?? today)
   const [intent, setIntent]               = useState<CalendarIntent>('medium')
+  const [monthlyPrice, setMonthlyPrice]   = useState('')
   const [showDropdown, setShowDropdown]   = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -45,16 +59,25 @@ export function CalendarEventModal({ rep, activityType, companies, defaultDate, 
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const canSubmit = companyName.trim().length > 0 && scheduledDate.length > 0
+  const isOnboarding = activityType === 'onb'
+  const price = parseFloat(monthlyPrice) || 0
+  const canSubmit =
+    companyName.trim().length > 0 &&
+    scheduledDate.length > 0 &&
+    (!isOnboarding || price > 0)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
-    onSave({ companyName: companyName.trim(), scheduledDate, intent })
+    onSave({
+      companyName: companyName.trim(),
+      scheduledDate,
+      intent,
+      ...(isOnboarding ? { monthlyPrice: price } : {}),
+    })
   }
 
-  const typeLabel = activityType === 'disc' ? 'Discovery booked' : 'Demo booked'
-  const accentColor = activityType === 'disc' ? '#FFD700' : '#00E5A0'
+  const { label: typeLabel, color: accentColor } = TYPE_META[activityType]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
@@ -107,18 +130,40 @@ export function CalendarEventModal({ rep, activityType, companies, defaultDate, 
             )}
           </div>
 
-          {/* Date */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Scheduled date</label>
-            <input
-              type="date"
-              value={scheduledDate}
-              onChange={(e) => setScheduledDate(e.target.value)}
-              className="mono w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-ink outline-none transition-all"
-              style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = accentColor + '66')}
-              onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
-            />
+          {/* Date (+ monthly price for onboarding) */}
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Scheduled date</label>
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                className="mono w-full px-3.5 py-2.5 rounded-lg text-[14px] font-medium text-ink outline-none transition-all"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = accentColor + '66')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
+              />
+            </div>
+            {isOnboarding && (
+              <div className="flex flex-col gap-1.5 flex-1">
+                <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Monthly price</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 text-[14px] font-semibold">$</span>
+                  <input
+                    type="number"
+                    value={monthlyPrice}
+                    onChange={(e) => setMonthlyPrice(e.target.value)}
+                    placeholder="399"
+                    min="0"
+                    step="1"
+                    className="mono w-full pl-7 pr-3.5 py-2.5 rounded-lg text-[14px] font-semibold text-ink outline-none transition-all placeholder:text-ink-3"
+                    style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
+                    onFocus={(e) => (e.currentTarget.style.borderColor = accentColor + '66')}
+                    onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Intent */}

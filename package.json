@@ -17,13 +17,15 @@
     "db:migrate-tasks": "dotenv -e .env.local -- tsx db/migrate-tasks.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.0",
     "drizzle-orm": "^0.45.2",
     "next": "^15.3.2",
     "postgres": "^3.4.9",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",

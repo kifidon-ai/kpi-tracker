@@ -3,14 +3,17 @@
 import { useState, useRef, useEffect } from 'react'
 import type { CalendarIntent } from '@/lib/types'
 
+type MeetingType = 'disc' | 'demo' | 'onb'
+
 interface AddMeetingModalProps {
   companies: string[]
   onSave: (data: {
     companyName: string
-    activityType: 'disc' | 'demo'
+    activityType: MeetingType
     scheduledDate: string
     intent: CalendarIntent
     status: string
+    monthlyPrice?: number
   }) => void
   onCancel: () => void
 }
@@ -28,6 +31,12 @@ const STATUS_OPTIONS = [
   { value: 'rescheduled',label: 'Rescheduled',color: '#FFD700' },
 ]
 
+const TYPE_OPTIONS: { value: MeetingType; label: string; color: string }[] = [
+  { value: 'disc', label: 'Discovery',  color: '#FFD700' },
+  { value: 'demo', label: 'Demo',       color: '#00E5A0' },
+  { value: 'onb',  label: 'Onboarding', color: '#3DD6C3' },
+]
+
 export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModalProps) {
   const getETDate = () => {
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -43,10 +52,11 @@ export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModal
     return `${year}-${month}-${day}`
   }
   const [companyName,   setCompanyName]   = useState('')
-  const [activityType,  setActivityType]  = useState<'disc' | 'demo'>('disc')
+  const [activityType,  setActivityType]  = useState<MeetingType>('disc')
   const [scheduledDate, setScheduledDate] = useState(getETDate())
   const [intent,        setIntent]        = useState<CalendarIntent>('medium')
   const [status,        setStatus]        = useState('scheduled')
+  const [monthlyPrice,  setMonthlyPrice]  = useState('')
   const [showDropdown,  setShowDropdown]  = useState(false)
   const inputRef   = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -66,15 +76,23 @@ export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModal
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const canSubmit = companyName.trim().length > 0
+  const typeColor = TYPE_OPTIONS.find((t) => t.value === activityType)?.color ?? '#FFD700'
+  const isOnboarding = activityType === 'onb'
+  const price = parseFloat(monthlyPrice) || 0
+  const canSubmit = companyName.trim().length > 0 && (!isOnboarding || price > 0)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
-    onSave({ companyName: companyName.trim(), activityType, scheduledDate, intent, status })
+    onSave({
+      companyName: companyName.trim(),
+      activityType,
+      scheduledDate,
+      intent,
+      status,
+      ...(isOnboarding ? { monthlyPrice: price } : {}),
+    })
   }
-
-  const typeColor = activityType === 'disc' ? '#FFD700' : '#00E5A0'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
@@ -88,8 +106,14 @@ export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModal
             <div className="w-2 h-2 rounded-full" style={{ background: typeColor }} />
             <div className="text-[11px] text-ink-3 uppercase tracking-[1px] font-semibold">Add meeting</div>
           </div>
-          <div className="text-[20px] font-bold leading-tight">Retroactive entry</div>
-          <div className="text-[13px] text-ink-2 mt-0.5">Links to an existing activity log — no double count</div>
+          <div className="text-[20px] font-bold leading-tight">
+            {isOnboarding ? 'Log onboarding' : 'Retroactive entry'}
+          </div>
+          <div className="text-[13px] text-ink-2 mt-0.5">
+            {isOnboarding
+              ? 'Select the company and date — counts as booked'
+              : 'Links to an existing activity log — no double count'}
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -97,25 +121,21 @@ export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModal
           <div className="flex flex-col gap-1.5">
             <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Meeting type</label>
             <div className="flex gap-2">
-              {(['disc', 'demo'] as const).map((t) => {
-                const c = t === 'disc' ? '#FFD700' : '#00E5A0'
-                const l = t === 'disc' ? 'Discovery' : 'Demo'
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setActivityType(t)}
-                    className="flex-1 py-2 rounded-lg text-[12px] font-bold transition-all"
-                    style={{
-                      background: activityType === t ? c + '22' : 'var(--bg-2)',
-                      border: `1px solid ${activityType === t ? c : 'var(--line)'}`,
-                      color: activityType === t ? c : 'var(--ink-2)',
-                    }}
-                  >
-                    {l}
-                  </button>
-                )
-              })}
+              {TYPE_OPTIONS.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setActivityType(t.value)}
+                  className="flex-1 py-2 rounded-lg text-[12px] font-bold transition-all"
+                  style={{
+                    background: activityType === t.value ? t.color + '22' : 'var(--bg-2)',
+                    border: `1px solid ${activityType === t.value ? t.color : 'var(--line)'}`,
+                    color: activityType === t.value ? t.color : 'var(--ink-2)',
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -153,7 +173,7 @@ export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModal
             )}
           </div>
 
-          {/* Date + Intent row */}
+          {/* Date + Status row */}
           <div className="flex gap-3">
             <div className="flex flex-col gap-1.5 flex-1">
               <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Date</label>
@@ -183,7 +203,27 @@ export function AddMeetingModal({ companies, onSave, onCancel }: AddMeetingModal
             </div>
           </div>
 
-          {/* Intent */}
+          {isOnboarding && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">Monthly price</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 text-[14px] font-semibold">$</span>
+                <input
+                  type="number"
+                  value={monthlyPrice}
+                  onChange={(e) => setMonthlyPrice(e.target.value)}
+                  placeholder="399"
+                  min="0"
+                  step="1"
+                  className="mono w-full pl-7 pr-3.5 py-2.5 rounded-lg text-[14px] font-semibold text-ink outline-none placeholder:text-ink-3"
+                  style={{ background: 'var(--input-bg)', border: '1px solid var(--line-2)' }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = typeColor + '66')}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--line-2)')}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <label className="text-[11px] text-ink-2 uppercase tracking-[0.8px] font-semibold">User intent</label>
             <div className="flex gap-2">

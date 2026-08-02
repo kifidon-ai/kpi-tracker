@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import type { CalendarEvent, Rep, CalendarIntent } from '@/lib/types'
+import { toLocalISO } from '@/lib/helpers'
 import { Icon } from './ui/Icon'
 import { Avatar } from './ui/Avatar'
 import { Card, SectionTitle } from './ui/primitives'
@@ -12,6 +13,7 @@ import {
   removeCalendarEventAction,
   editCalendarEventAction,
   addCalendarEntryOnlyAction,
+  logCalendarEventAction,
   getCalendarCompaniesAction,
 } from '@/app/actions'
 
@@ -37,8 +39,8 @@ const INTENT_OPTIONS: { value: CalendarIntent; label: string }[] = [
   { value: 'medium', label: 'Medium' },
   { value: 'low',    label: 'Low' },
 ]
-const TYPE_LABEL: Record<string, string> = { disc: 'Disc', demo: 'Demo' }
-const TYPE_COLOR: Record<string, string>  = { disc: '#FFD700', demo: '#00E5A0' }
+const TYPE_LABEL: Record<string, string> = { disc: 'Disc', demo: 'Demo', onb: 'Onb' }
+const TYPE_COLOR: Record<string, string>  = { disc: '#FFD700', demo: '#00E5A0', onb: '#3DD6C3' }
 
 function formatEventDate(dateISO: string): string {
   const [y, m, d] = dateISO.split('-')
@@ -55,10 +57,10 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
   const [openMenu, setOpenMenu]           = useState<string | null>(null)
   const [loading, setLoading]             = useState<string | null>(null)
   const [showAddModal, setShowAddModal]   = useState(false)
-  const [filterType, setFilterType]       = useState<'all' | 'disc' | 'demo'>('all')
+  const [filterType, setFilterType]       = useState<'all' | 'disc' | 'demo' | 'onb'>('all')
   const [sortBy, setSortBy]               = useState<'name' | 'type' | 'date'>('date')
   const menuRef = useRef<HTMLDivElement>(null)
-  const todayISO = new Date().toISOString().slice(0, 10)
+  const todayISO = toLocalISO(new Date())
 
   const dateLabel = (() => {
     if (!startDate || !endDate) return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -90,9 +92,9 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
         return a.scheduled_date.localeCompare(b.scheduled_date)
           || a.company_name.localeCompare(b.company_name)
       }
-      const typeOrder = { disc: 0, demo: 1 }
-      const aTypeOrder = typeOrder[a.activity_type as keyof typeof typeOrder] ?? 2
-      const bTypeOrder = typeOrder[b.activity_type as keyof typeof typeOrder] ?? 2
+      const typeOrder = { disc: 0, demo: 1, onb: 2 }
+      const aTypeOrder = typeOrder[a.activity_type as keyof typeof typeOrder] ?? 3
+      const bTypeOrder = typeOrder[b.activity_type as keyof typeof typeOrder] ?? 3
       return aTypeOrder - bTypeOrder || a.company_name.localeCompare(b.company_name)
     })
 
@@ -169,19 +171,41 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
 
   async function handleAddMeeting(data: {
     companyName: string
-    activityType: 'disc' | 'demo'
+    activityType: 'disc' | 'demo' | 'onb'
     scheduledDate: string
     intent: CalendarIntent
     status: string
+    monthlyPrice?: number
   }) {
     setShowAddModal(false)
     try {
-      const { event } = await addCalendarEntryOnlyAction({ repId, ...data })
-      // Only add to today's view if it's for today
-      if (data.scheduledDate === todayISO) {
+      let event: CalendarEvent
+      // Onboarding from calendar is a first-class booking (counts as booked).
+      // Disc/demo stay calendar-only to avoid double-counting live-tracker taps.
+      if (data.activityType === 'onb') {
+        const result = await logCalendarEventAction({
+          repId,
+          companyName: data.companyName,
+          activityType: data.activityType,
+          scheduledDate: data.scheduledDate,
+          intent: data.intent,
+          monthlyPrice: data.monthlyPrice,
+        })
+        event = result.event
+        if (data.status && data.status !== 'scheduled') {
+          const updated = await updateCalendarEventStatusAction(event.id, data.status)
+          event = updated.event
+        }
+      } else {
+        const result = await addCalendarEntryOnlyAction({ repId, ...data })
+        event = result.event
+      }
+      const inRange =
+        (!startDate || data.scheduledDate >= startDate) &&
+        (!endDate || data.scheduledDate <= endDate)
+      if (inRange || data.scheduledDate === todayISO) {
         onEventsChange([...events, event])
       }
-      // Refresh companies list so new company shows up next time
       getCalendarCompaniesAction().then(onCompaniesUpdate)
     } catch { /* silent */ }
   }
@@ -240,10 +264,10 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-ink-3 uppercase tracking-[0.6px] font-semibold">Filter:</span>
           <div className="flex gap-1 bg-bg-2 p-1 rounded-lg">
-            {['all', 'disc', 'demo'].map((type) => (
+            {(['all', 'disc', 'demo', 'onb'] as const).map((type) => (
               <button
                 key={type}
-                onClick={() => setFilterType(type as 'all' | 'disc' | 'demo')}
+                onClick={() => setFilterType(type)}
                 className="px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all"
                 style={{
                   background: filterType === type ? 'var(--bg-1)' : 'transparent',
@@ -251,7 +275,7 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
                   border: filterType === type ? '1px solid var(--line)' : '1px solid transparent',
                 }}
               >
-                {type === 'all' ? 'All' : type === 'disc' ? 'Disc' : 'Demo'}
+                {type === 'all' ? 'All' : TYPE_LABEL[type]}
               </button>
             ))}
           </div>
@@ -305,7 +329,14 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
                   {TYPE_LABEL[event.activity_type] ?? event.activity_type}
                 </div>
 
-                <div className="text-[13px] font-semibold text-ink truncate flex-1 min-w-0">{event.company_name}</div>
+                <div className="text-[13px] font-semibold text-ink truncate flex-1 min-w-0">
+                  {event.company_name}
+                  {event.activity_type === 'onb' && event.monthly_price != null && event.monthly_price > 0 && (
+                    <span className="mono text-[11px] font-bold text-[#3DD6C3] ml-1.5">
+                      ${Math.round(event.monthly_price)}
+                    </span>
+                  )}
+                </div>
 
                 <div className="mono text-[10px] text-ink-3 shrink-0 whitespace-nowrap">
                   {formatEventDate(event.scheduled_date)}
