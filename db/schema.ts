@@ -37,6 +37,7 @@ export const activity_log_entries = pgTable('activity_log_entries', {
   delta:       integer('delta').notNull().default(1),
   calendar_id: uuid('calendar_id').references(() => calendar.id),
   logged_at:   timestamp('logged_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  deleted_at:  timestamp('deleted_at', { withTimezone: true, mode: 'string' }),
 }, (t) => [
   index('idx_log_entries_rep').on(t.rep_id),
   index('idx_log_entries_logged_at').on(t.logged_at),
@@ -76,6 +77,7 @@ export const calendar = pgTable('calendar', {
   /** Deal MRR set at onboarding booking; carried into Closed Won. */
   monthly_price:    doublePrecision('monthly_price'),
   created_at:       timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  deleted_at:       timestamp('deleted_at', { withTimezone: true, mode: 'string' }),
 }, (t) => [
   index('idx_calendar_rep').on(t.rep_id),
   index('idx_calendar_date').on(t.scheduled_date),

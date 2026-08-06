@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar, targets } from '@/db/schema'
-import { eq, and, gte, lte, desc, sql, asc, lt, ne, or, inArray, isNotNull, gt } from 'drizzle-orm'
+import { eq, and, gte, lte, desc, sql, asc, lt, ne, or, inArray, isNotNull, isNull, gt } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
   const rows = await db
@@ -13,6 +13,7 @@ export async function getActivityCountsAction(startISO: string, endISO: string) 
     })
     .from(activity_log_entries)
     .where(and(
+      isNull(activity_log_entries.deleted_at),
       gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, startISO),
       lte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, endISO),
     ))
@@ -58,6 +59,7 @@ export async function decrementActivityAction(
   const filters = [
     eq(activity_log_entries.rep_id, repId),
     eq(activity_log_entries.metric_key, metricKey),
+    isNull(activity_log_entries.deleted_at),
     gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, periodStartISO),
   ]
   if (periodEndISO) {
@@ -77,10 +79,10 @@ export async function decrementActivityAction(
 
   const row = rows[0]
   const calendarId = row.calendar_id ?? null
+  const now = new Date().toISOString()
 
   if (row.delta <= 1) {
-    // Delete the log first so the calendar FK does not block removal
-    await db.delete(activity_log_entries).where(eq(activity_log_entries.id, row.id))
+    await db.update(activity_log_entries).set({ deleted_at: now }).where(eq(activity_log_entries.id, row.id))
   } else {
     await db
       .update(activity_log_entries)
@@ -88,10 +90,10 @@ export async function decrementActivityAction(
       .where(eq(activity_log_entries.id, row.id))
   }
 
-  // Disc/demo bookings are tied to a calendar row — remove that too
+  // Disc/demo bookings are tied to a calendar row — soft-delete that too
   if (calendarId) {
     try {
-      await db.delete(calendar).where(eq(calendar.id, calendarId))
+      await db.update(calendar).set({ deleted_at: now }).where(eq(calendar.id, calendarId))
     } catch { /* ignore */ }
   }
 
@@ -119,6 +121,7 @@ export async function getTrendAction(startISO: string, endISO: string) {
     })
     .from(activity_log_entries)
     .where(and(
+      isNull(activity_log_entries.deleted_at),
       gte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, startISO),
       lte(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, endISO),
     ))
@@ -140,7 +143,10 @@ export async function getHourlyTrendAction(dateISO: string) {
       total:      sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
     })
     .from(activity_log_entries)
-    .where(eq(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, dateISO))
+    .where(and(
+      isNull(activity_log_entries.deleted_at),
+      eq(sql`(${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::date`, dateISO),
+    ))
     .groupBy(
       sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`,
       activity_log_entries.metric_key,
@@ -160,6 +166,7 @@ export async function getAttendanceTrendAction(startISO: string, endISO: string)
       })
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         gte(calendar.scheduled_date, startISO),
         lte(calendar.scheduled_date, endISO),
         eq(calendar.status, 'attended'),
@@ -179,7 +186,10 @@ export async function getDiscByHourAction() {
       total: sql<number>`cast(sum(${activity_log_entries.delta}) as int)`,
     })
     .from(activity_log_entries)
-    .where(eq(activity_log_entries.metric_key, 'disc'))
+    .where(and(
+      isNull(activity_log_entries.deleted_at),
+      eq(activity_log_entries.metric_key, 'disc'),
+    ))
     .groupBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
     .orderBy(sql`extract(hour from ${activity_log_entries.logged_at} AT TIME ZONE 'America/New_York')::int`)
   return rows
@@ -197,6 +207,7 @@ export async function getDiscShowRateByDowAction() {
       })
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         inArray(calendar.activity_type, ['disc', 'demo', 'onb']),
         lt(calendar.scheduled_date, sql`CURRENT_DATE`),
       ))
@@ -351,6 +362,7 @@ export async function getCalendarEventsForPeriodAction(
       .select()
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         eq(calendar.rep_id, repId),
         eq(calendar.activity_type, activityType),
         gte(calendar.scheduled_date, startISO),
@@ -361,12 +373,12 @@ export async function getCalendarEventsForPeriodAction(
 }
 
 export async function deleteCalendarEventAction(eventId: string, repId: string, _metricKey: string, _periodStartISO: string) {
-  // Always remove linked activity logs first (FK: activity_log.calendar_id → calendar.id)
+  const now = new Date().toISOString()
   try {
-    await db.delete(activity_log_entries).where(eq(activity_log_entries.calendar_id, eventId))
+    await db.update(activity_log_entries).set({ deleted_at: now }).where(and(eq(activity_log_entries.calendar_id, eventId), isNull(activity_log_entries.deleted_at)))
   } catch { /* ignore */ }
   try {
-    await db.delete(calendar).where(and(eq(calendar.id, eventId), eq(calendar.rep_id, repId)))
+    await db.update(calendar).set({ deleted_at: now }).where(and(eq(calendar.id, eventId), eq(calendar.rep_id, repId)))
   } catch { /* table may not exist yet */ }
   return { ok: true }
 }
@@ -415,7 +427,6 @@ export async function logCalendarEventAction(data: {
       color:       def.color,
       delta:       1,
       calendar_id: event.id,
-      ...(data.loggedAt ? { logged_at: data.loggedAt } : {}),
     })
     .returning()
 
@@ -428,6 +439,7 @@ export async function getCalendarEventsAction(repId: string, dateISO: string) {
       .select()
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         eq(calendar.rep_id, repId),
         eq(calendar.scheduled_date, dateISO),
       ))
@@ -441,6 +453,7 @@ export async function getCalendarEventsForDateRangeAction(repId: string, startIS
       .select()
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         eq(calendar.rep_id, repId),
         gte(calendar.scheduled_date, startISO),
         lte(calendar.scheduled_date, endISO),
@@ -455,6 +468,7 @@ export async function getCalendarEventsForDateRangeAllRepsAction(startISO: strin
       .select()
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         gte(calendar.scheduled_date, startISO),
         lte(calendar.scheduled_date, endISO),
       ))
@@ -467,6 +481,7 @@ export async function getCalendarCompaniesAction() {
     const rows = await db
       .selectDistinct({ company_name: calendar.company_name })
       .from(calendar)
+      .where(isNull(calendar.deleted_at))
       .orderBy(asc(calendar.company_name))
     return rows.map((r) => r.company_name)
   } catch { return [] }
@@ -484,6 +499,7 @@ export async function getPendingOnboardingsAction(startISO: string, endISO: stri
       })
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         eq(calendar.activity_type, 'onb'),
         gte(calendar.scheduled_date, startISO),
         lte(calendar.scheduled_date, endISO),
@@ -507,6 +523,7 @@ export async function getOnboardingPricesAction() {
       })
       .from(calendar)
       .where(and(
+        isNull(calendar.deleted_at),
         eq(calendar.activity_type, 'onb'),
         isNotNull(calendar.monthly_price),
         gt(calendar.monthly_price, 0),
@@ -572,7 +589,7 @@ export async function getShowRatesAction(startISO?: string, endISO?: string) {
         attended:      sql<number>`cast(sum(case when ${calendar.status} = 'attended' then 1 else 0 end) as int)`,
       })
       .from(calendar)
-      .where(dateFilter)
+      .where(and(isNull(calendar.deleted_at), dateFilter))
       .groupBy(calendar.rep_id, calendar.activity_type)
     return rows
   } catch { return [] }
@@ -610,27 +627,27 @@ export async function getAttendedConversionsAction() {
     const resolved = or(eq(calendar.status, 'attended'), eq(calendar.status, 'no_show'))
     const pastOrResolved = or(lt(calendar.scheduled_date, sql`CURRENT_DATE`), and(gte(calendar.scheduled_date, sql`CURRENT_DATE`), resolved))
 
-    const allDisc = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'disc'), pastOrResolved))
+    const allDisc = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'disc'), pastOrResolved))
     const attendedDisc = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), pastOrResolved))
+      .where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'disc'), eq(calendar.status, 'attended'), pastOrResolved))
 
-    const allDemos = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'demo'), pastOrResolved))
+    const allDemos = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'demo'), pastOrResolved))
     const attendedDemos = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), pastOrResolved))
+      .where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'demo'), eq(calendar.status, 'attended'), pastOrResolved))
 
-    const allOnb = await db.select().from(calendar).where(and(eq(calendar.activity_type, 'onb'), pastOrResolved))
+    const allOnb = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'onb'), pastOrResolved))
     const attendedOnb = await db
       .select()
       .from(calendar)
-      .where(and(eq(calendar.activity_type, 'onb'), eq(calendar.status, 'attended'), pastOrResolved))
+      .where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'onb'), eq(calendar.status, 'attended'), pastOrResolved))
 
     // All demos/onboardings ever (including future) to check conversions from prior stages
-    const allDemosIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'demo'))
-    const allOnbIncludingFuture = await db.select().from(calendar).where(eq(calendar.activity_type, 'onb'))
+    const allDemosIncludingFuture = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'demo')))
+    const allOnbIncludingFuture = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'onb')))
 
     const closedDeals = await db.select().from(closed_deals)
 
@@ -710,10 +727,11 @@ export async function getAttendedConversionsAction() {
 }
 
 export async function removeCalendarEventAction(eventId: string) {
+  const now = new Date().toISOString()
   try {
-    await db.delete(activity_log_entries).where(eq(activity_log_entries.calendar_id, eventId as unknown as string))
+    await db.update(activity_log_entries).set({ deleted_at: now }).where(and(eq(activity_log_entries.calendar_id, eventId as unknown as string), isNull(activity_log_entries.deleted_at)))
   } catch { /* may not exist */ }
-  await db.delete(calendar).where(eq(calendar.id, eventId))
+  await db.update(calendar).set({ deleted_at: now }).where(eq(calendar.id, eventId))
   return { ok: true }
 }
 

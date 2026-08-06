@@ -138,6 +138,16 @@ async function run() {
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS cancel_date date
   `)
 
+  // 011 — soft-delete column on calendar
+  await db.execute(sql`
+    ALTER TABLE calendar ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+  `)
+
+  // 012 — soft-delete column on activity_log_entries
+  await db.execute(sql`
+    ALTER TABLE activity_log_entries ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+  `)
+
   console.log('Migrations complete')
   process.exit(0)
 }

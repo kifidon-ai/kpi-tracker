@@ -93,12 +93,13 @@ export default function LoginPage() {
       <div style={{ width: '100%', maxWidth: 400 }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40, justifyContent: 'center' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'linear-gradient(135deg, #00D4FF, #3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path d="M3 18L9 12L13 16L21 6" stroke="var(--accent-text)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="21" cy="6" r="2" fill="var(--accent-text)" />
-            </svg>
-          </div>
+          <img
+            src="/favicon/logo.png"
+            alt="Stepscale"
+            width={40}
+            height={40}
+            style={{ width: 40, height: 40, borderRadius: 11, display: 'block' }}
+          />
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.4, color: 'var(--ink)' }}>Stepscale Sales</div>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'JetBrains Mono, monospace' }}>KPI Dashboard</div>

@@ -31,7 +31,7 @@ import {
   rescheduleCalendarEventAction,
   updateCalendarEventStatusAction,
 } from '@/app/actions'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 
 function jsonResult(data: unknown) {
   return {
@@ -61,7 +61,7 @@ function metricMeta(metricKey: string) {
 }
 
 async function getMeeting(eventId: string) {
-  const [row] = await db.select().from(calendar).where(eq(calendar.id, eventId)).limit(1)
+  const [row] = await db.select().from(calendar).where(and(eq(calendar.id, eventId), isNull(calendar.deleted_at))).limit(1)
   return row ?? null
 }
 
@@ -69,7 +69,7 @@ async function getActivity(entryId: string) {
   const [row] = await db
     .select()
     .from(activity_log_entries)
-    .where(eq(activity_log_entries.id, entryId))
+    .where(and(eq(activity_log_entries.id, entryId), isNull(activity_log_entries.deleted_at)))
     .limit(1)
   return row ?? null
 }
@@ -323,10 +323,11 @@ export function registerKpiTools(server: McpServer) {
         })
       }
       const calendarId = before.calendar_id
-      await db.delete(activity_log_entries).where(eq(activity_log_entries.id, entry_id))
+      const now = new Date().toISOString()
+      await db.update(activity_log_entries).set({ deleted_at: now }).where(eq(activity_log_entries.id, entry_id))
       if (calendarId) {
         try {
-          await db.delete(calendar).where(eq(calendar.id, calendarId))
+          await db.update(calendar).set({ deleted_at: now }).where(eq(calendar.id, calendarId))
         } catch { /* ignore */ }
       }
       return writeResult({

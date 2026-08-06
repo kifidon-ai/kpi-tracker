@@ -166,12 +166,13 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: 'linear-gradient(135deg, #00D4FF, #3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M3 18L9 12L13 16L21 6" stroke="#0A0E1A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                <circle cx="21" cy="6" r="2" fill="#0A0E1A" />
-              </svg>
-            </div>
+            <img
+              src="/favicon/logo.png"
+              alt="Stepscale"
+              width={34}
+              height={34}
+              style={{ width: 34, height: 34, borderRadius: 9, display: 'block' }}
+            />
             <div>
               <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: -0.3 }}>Stepscale Sales</div>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'JetBrains Mono, monospace' }}>

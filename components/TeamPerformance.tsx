@@ -967,7 +967,30 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               valueOffsetY={12}
               pillOffsetY={-21}
               zoneColors={['#FF5468', '#FF8C00', '#FFB800', '#00D4FF', '#00E5A0']}
-              pill={<Pill color="#00D4FF">ACV {periodClientCount > 0 ? fmtMoney(Math.round(periodMrr / periodClientCount)) : '—'}</Pill>}
+              pill={(() => {
+                const currentAcv = periodClientCount > 0 ? Math.round(periodMrr / periodClientCount) : null
+                const projectedAcv = onboardingProjection.clients > 0 && (periodClientCount + onboardingProjection.clients) > 0
+                  ? Math.round((periodMrr + onboardingProjection.mrr) / (periodClientCount + onboardingProjection.clients))
+                  : null
+                const acvDelta = currentAcv !== null && projectedAcv !== null ? projectedAcv - currentAcv : null
+                const showDelta = acvDelta !== null && acvDelta !== 0
+                return (
+                  <div className="flex items-center gap-1.5">
+                    <span key={`acv-pill-${showDelta}`} className={showDelta ? 'pill-slide-left' : undefined}>
+                      <Pill color="#00D4FF">ACV {currentAcv !== null ? fmtMoney(currentAcv) : '—'}</Pill>
+                    </span>
+                    {showDelta && (
+                      <span
+                        key={`acv-proj-${onboardingProjection.clients}`}
+                        className="mono text-[11px] font-bold text-ink-3 leading-none proj-delta-in"
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        {acvDelta! > 0 ? '+' : ''}{fmtMoney(acvDelta!)}
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
             />
           </div>
           {/* ARR */}
@@ -1572,8 +1595,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                     <td className="px-4 py-3 text-right">
                       {disc > 0 ? (
                         <>
-                          <span className="mono text-[12px] font-semibold text-ink">{(conv / disc).toFixed(2)}</span>
-                          <span className="mono text-[10px] text-ink-3 ml-1.5">{((conv / disc) * 100).toFixed(0)}%</span>
+                          <span className="mono text-[12px] font-semibold text-ink">{(conv / disc).toFixed(2)}%</span>
                         </>
                       ) : <span className="text-ink-3 text-[11px]">—</span>}
                     </td>
