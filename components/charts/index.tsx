@@ -256,6 +256,13 @@ export function BarChart({ data, width: initialWidth = 720, height: initialHeigh
   const bw = slotWidth * 0.55
   const gap = slotWidth * 0.45
 
+  const medianValue = (() => {
+    const vals = [...data.map((d) => d.value)].sort((a, b) => a - b)
+    if (vals.length === 0) return 0
+    const mid = Math.floor(vals.length / 2)
+    return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid]
+  })()
+
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: initialHeight }}>
     <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
@@ -294,6 +301,15 @@ export function BarChart({ data, width: initialWidth = 720, height: initialHeigh
           </g>
         )
       })}
+      {medianValue > 0 && (() => {
+        const y = pad.t + h - (medianValue / niceMax) * h
+        return (
+          <g>
+            <line x1={pad.l} x2={pad.l + w} y1={y} y2={y} stroke="var(--ink)" strokeOpacity="0.35" strokeWidth="1.5" />
+            <text x={pad.l + w} y={y - 4} fill="var(--ink)" fillOpacity="0.4" fontSize="10" textAnchor="end" fontFamily="JetBrains Mono">med {formatter(medianValue)}</text>
+          </g>
+        )
+      })()}
     </svg>
     </div>
   )
