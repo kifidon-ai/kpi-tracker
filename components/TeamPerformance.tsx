@@ -254,8 +254,10 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
   const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [savingClient, setSavingClient] = useState(false)
   const [openClientMenu, setOpenClientMenu] = useState<string | null>(null)
+  const [showLeftGradient, setShowLeftGradient] = useState(false)
+  const [showRightGradient, setShowRightGradient] = useState(true)
   const [pipelineMetric, setPipelineMetric] = useState<
-    'dials' | 'vm' | 'conv' | 'disc' | 'disc_att' | 'demo' | 'demo_att' | 'onb' | 'onb_att' | 'closed' | null
+    'dials' | 'vm' | 'gk_conv' | 'dm_conv' | 'disc' | 'disc_att' | 'demo' | 'demo_att' | 'onb' | 'onb_att' | 'closed' | null
   >('dials')
   const [pipelineChartMode, setPipelineChartMode] = useState<'bar' | 'trend'>('bar')
   const clientMenuRef = useRef<HTMLDivElement>(null)
@@ -480,7 +482,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
     const out: Array<{
       label: string
       dials: number
-      conv: number
+      gkConv: number
+      dmConv: number
       vm: number
       disc: number
       discAtt: number
@@ -505,7 +508,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
         out.push({
           label: fmtHour(h),
           dials: t.dials ?? 0,
-          conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
+          gkConv: t.gk_conv ?? 0,
+          dmConv: t.dm_conv ?? 0,
           vm: t.vm ?? 0,
           disc: t.disc ?? 0,
           discAtt: 0,
@@ -531,7 +535,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
         out.push({
           label: (d.getMonth() + 1) + '/' + d.getDate(),
           dials: t.dials ?? 0,
-          conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
+          gkConv: t.gk_conv ?? 0,
+          dmConv: t.dm_conv ?? 0,
           vm: t.vm ?? 0,
           disc: t.disc ?? 0,
           discAtt: attendance.filter((r) => r.activity_type === 'disc').reduce((sum, r) => sum + r.total, 0),
@@ -562,7 +567,8 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
       out.push({
         label: isCurrent && offset === 0 && range !== 'all' ? 'Now' : (weekStart.getMonth() + 1) + '/' + weekStart.getDate(),
         dials: t.dials ?? 0,
-        conv: (t.gk_conv ?? 0) + (t.dm_conv ?? 0),
+        gkConv: t.gk_conv ?? 0,
+        dmConv: t.dm_conv ?? 0,
         vm: t.vm ?? 0,
         disc: t.disc ?? 0,
         discAtt: attendance.filter((r) => r.activity_type === 'disc').reduce((sum, r) => sum + r.total, 0),
@@ -1057,42 +1063,64 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
           }> = [
             { key: 'dials', label: 'Dials', value: t.dials ?? 0, color: '#00D4FF' },
             { key: 'vm', label: 'Voice mail', value: t.vm ?? 0, color: '#5A6685' },
-            { key: 'conv', label: 'Conversations', value: t.dm_conv ?? 0, color: '#8B5CF6' },
-            { key: 'disc', label: 'Discovery booked', value: discBooked, color: '#FFB800' },
-            { key: 'disc_att', label: 'Discovery attended', value: discAttended, color: '#FFB800' },
-            { key: 'demo', label: 'Demo booked', value: demoBooked, color: '#FF3D9A' },
-            { key: 'demo_att', label: 'Demo attended', value: demoAttended, color: '#FF3D9A' },
-            { key: 'onb', label: 'Onb booked', value: onbBooked, color: '#3DD6C3' },
-            { key: 'onb_att', label: 'Onb attended', value: onbAttended, color: '#3DD6C3' },
+            { key: 'gk_conv', label: 'GK Conv', value: t.gk_conv ?? 0, color: '#8B5CF6' },
+            { key: 'dm_conv', label: 'DM Conv', value: t.dm_conv ?? 0, color: '#7C3AED' },
+            { key: 'disc', label: 'Disc', value: discBooked, color: '#FFB800' },
+            { key: 'disc_att', label: 'Disc Att', value: discAttended, color: '#FFB800' },
+            { key: 'demo', label: 'Demo', value: demoBooked, color: '#FF3D9A' },
+            { key: 'demo_att', label: 'Demo Att', value: demoAttended, color: '#FF3D9A' },
+            { key: 'onb', label: 'Onb', value: onbBooked, color: '#3DD6C3' },
+            { key: 'onb_att', label: 'Onb Att', value: onbAttended, color: '#3DD6C3' },
             { key: 'closed', label: 'Closed', value: closedCount, color: '#00E5A0' },
           ]
           return (
-            <div className="mt-3 grid grid-cols-5 xl:grid-cols-10 gap-2">
-              {stages.map((stage, i) => {
-                const active = pipelineMetric === stage.key
-                return (
-                  <button
-                    key={stage.key}
-                    type="button"
-                    onClick={() => setPipelineMetric((prev) => (prev === stage.key ? null : stage.key))}
-                    className="relative flex flex-col items-center text-center px-1 py-2 rounded-lg transition-colors"
-                    style={{
-                      background: active ? stage.color + '18' : 'transparent',
-                      boxShadow: active ? `inset 0 0 0 1px ${stage.color}55` : 'none',
-                    }}
-                  >
-                    {i > 0 && (
-                      <div className="pointer-events-none absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 text-ink-3 text-[12px]">→</div>
-                    )}
-                    <div className="text-[10px] font-bold uppercase tracking-[0.6px] mb-1.5" style={{ color: stage.color }}>
-                      {stage.label}
+            <div className="mt-3 overflow-x-auto group relative" style={{ scrollbarWidth: 'none' }} onScroll={(e) => {
+              const target = e.currentTarget
+              setShowLeftGradient(target.scrollLeft > 0)
+              setShowRightGradient(target.scrollLeft < target.scrollWidth - target.clientWidth - 10)
+            }}>
+              <style>{`
+                .group::-webkit-scrollbar { height: 8px; }
+                .group::-webkit-scrollbar-track { background: transparent; }
+                .group::-webkit-scrollbar-thumb { background: #6B7280; border-radius: 4px; opacity: 0; transition: opacity 0.2s; }
+                .group:hover::-webkit-scrollbar-thumb { opacity: 1; }
+              `}</style>
+              {showLeftGradient && (
+                <div className="absolute left-0 top-0 bottom-0 w-8 pointer-events-none z-10" style={{ background: 'linear-gradient(90deg, var(--card-top) 0%, transparent 100%)' }} />
+              )}
+              {showRightGradient && (
+                <div className="absolute right-0 top-0 bottom-0 w-8 pointer-events-none z-10" style={{ background: 'linear-gradient(90deg, transparent 0%, var(--card-top) 100%)' }} />
+              )}
+              <div className="flex gap-4 justify-between items-center min-w-full px-3">
+                {stages.map((stage, i) => {
+                  const active = pipelineMetric === stage.key
+                  return (
+                    <div key={stage.key} className="flex items-center gap-4 flex-1 my-2">
+                      <button
+                        type="button"
+                        onClick={() => setPipelineMetric((prev) => (prev === stage.key ? null : stage.key))}
+                        className="flex flex-1 flex-col items-center justify-center text-center px-4 py-2 rounded-lg transition-colors"
+                        style={{
+                          background: active ? `linear-gradient(135deg, ${stage.color}22, ${stage.color}08)` : 'linear-gradient(135deg, #2D3852, #1F2937)',
+                          minHeight: '80px',
+                          minWidth: '120px',
+                          boxShadow: active ? `0 0 12px ${stage.color}55` : 'none',
+                        }}
+                      >
+                        <div className="text-[10px] font-bold uppercase tracking-[0.6px] mb-1.5" style={{ color: stage.color }}>
+                          {stage.label}
+                        </div>
+                        <div className="mono text-[24px] font-extrabold text-ink leading-none">
+                          {fmtNum(stage.value)}
+                        </div>
+                      </button>
+                      {i < stages.length - 1 && (
+                        <div className="text-ink-3 text-[12px] shrink-0">→</div>
+                      )}
                     </div>
-                    <div className="mono text-[24px] font-extrabold text-ink leading-none">
-                      {fmtNum(stage.value)}
-                    </div>
-                  </button>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           )
         })()}
@@ -1101,16 +1129,17 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
       {/* Metric / ARR chart */}
       <Card className="flex flex-col">
         {(() => {
-          const metricMeta: Record<NonNullable<typeof pipelineMetric>, { label: string; color: string; seriesKey: 'dials' | 'vm' | 'conv' | 'disc' | 'discAtt' | 'demo' | 'demoAtt' | 'onb' | 'onbAtt' | 'closed' }> = {
+          const metricMeta: Record<NonNullable<typeof pipelineMetric>, { label: string; color: string; seriesKey: 'dials' | 'vm' | 'gkConv' | 'dmConv' | 'disc' | 'discAtt' | 'demo' | 'demoAtt' | 'onb' | 'onbAtt' | 'closed' }> = {
             dials: { label: 'Dials', color: '#00D4FF', seriesKey: 'dials' },
             vm: { label: 'Voice mail', color: '#5A6685', seriesKey: 'vm' },
-            conv: { label: 'Conversations', color: '#8B5CF6', seriesKey: 'conv' },
-            disc: { label: 'Discovery booked', color: '#FFB800', seriesKey: 'disc' },
-            disc_att: { label: 'Discovery attended', color: '#FFB800', seriesKey: 'discAtt' },
-            demo: { label: 'Demo booked', color: '#FF3D9A', seriesKey: 'demo' },
-            demo_att: { label: 'Demo attended', color: '#FF3D9A', seriesKey: 'demoAtt' },
-            onb: { label: 'Onb booked', color: '#3DD6C3', seriesKey: 'onb' },
-            onb_att: { label: 'Onb attended', color: '#3DD6C3', seriesKey: 'onbAtt' },
+            gk_conv: { label: 'GK Conv', color: '#8B5CF6', seriesKey: 'gkConv' },
+            dm_conv: { label: 'DM Conv', color: '#7C3AED', seriesKey: 'dmConv' },
+            disc: { label: 'Disc', color: '#FFB800', seriesKey: 'disc' },
+            disc_att: { label: 'Disc Att', color: '#FFB800', seriesKey: 'discAtt' },
+            demo: { label: 'Demo', color: '#FF3D9A', seriesKey: 'demo' },
+            demo_att: { label: 'Demo Att', color: '#FF3D9A', seriesKey: 'demoAtt' },
+            onb: { label: 'Onb', color: '#3DD6C3', seriesKey: 'onb' },
+            onb_att: { label: 'Onb Att', color: '#3DD6C3', seriesKey: 'onbAtt' },
             closed: { label: 'Closed', color: '#00E5A0', seriesKey: 'closed' },
           }
 
@@ -1243,6 +1272,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                   const newClientsThisWeek = clients.filter((c) =>
                     c.since_date && (c.since_date as string) >= weekStartStr && (c.since_date as string) <= weekEndStr
                   )
+                  const cancelledClientsThisWeek = clients.filter((c) =>
+                    c.cancel_date && (c.cancel_date as string) >= weekStartStr && (c.cancel_date as string) <= weekEndStr
+                  )
                   const totalMrrAdded = newClientsThisWeek.reduce((sum, c) => sum + c.mrr, 0)
 
                   return (
@@ -1276,7 +1308,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                           </div>
                         </div>
                       )}
-                      {newClientsThisWeek.length > 0 && hoveredWeek === wm.label && (
+                      {(newClientsThisWeek.length > 0 || cancelledClientsThisWeek.length > 0) && hoveredWeek === wm.label && (
                         <div
                           className="fixed text-[11px] p-2.5 rounded z-50 pointer-events-none font-semibold"
                           style={{
@@ -1289,6 +1321,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                           {newClientsThisWeek.map((c, idx) => (
                             <div key={idx} className="whitespace-nowrap">
                               {c.name} ({fmtMoney(c.mrr)})
+                            </div>
+                          ))}
+                          {cancelledClientsThisWeek.map((c, idx) => (
+                            <div key={`cancelled-${idx}`} className="whitespace-nowrap" style={{ color: '#FF5468' }}>
+                              − {c.name} ({fmtMoney(c.mrr)})
                             </div>
                           ))}
                         </div>
@@ -1527,11 +1564,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                   { label: 'Conv/Disc',      color: '#8B5CF6', hl: false },
                   { label: 'VM',             color: '#5A6685', hl: false },
                   { label: 'Disc',           color: '#FFB800', hl: true  },
-                  { label: 'Disc Show',      color: '#FFB800', hl: true  },
+                  { label: 'Disc Att',       color: '#FFB800', hl: true  },
                   { label: 'Demo',           color: '#FF3D9A', hl: false },
-                  { label: 'Demo Show',      color: '#FF3D9A', hl: false },
+                  { label: 'Demo Att',       color: '#FF3D9A', hl: false },
                   { label: 'Onb',            color: '#3DD6C3', hl: false },
-                  { label: 'Onb Show',       color: '#3DD6C3', hl: false },
+                  { label: 'Onb Att',        color: '#3DD6C3', hl: false },
                   { label: 'Closed',         color: '#00E5A0', hl: true  },
                   { label: 'MRR',            color: '#00D4FF', hl: true  },
                   { label: 'ARR',            color: '#00E5A0', hl: true  },
@@ -1550,7 +1587,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
               {reps.map((rep) => {
                 const m      = repTotals[rep.id] ?? {}
                 const dials  = m.dials  ?? 0
-                const conv   = m.dm_conv ?? 0
+                const gkConv = m.gk_conv ?? 0
+                const dmConv = m.dm_conv ?? 0
+                const totalConv = gkConv + dmConv
                 const vm     = m.vm     ?? 0
                 const disc   = m.disc   ?? 0
                 const demo   = m.demo   ?? 0
@@ -1558,15 +1597,15 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                 const closed = m.closed ?? 0
                 const periodMrr = periodMrrByRep[rep.id] ?? 0
                 const periodArr = periodMrr * 12
-                const cvRate   = dials ? conv   / dials * 100 : 0
-                const discRate = conv  ? disc   / conv  * 100 : 0
+                const cvRate   = dials ? totalConv   / dials * 100 : 0
+                const discRate = totalConv  ? disc   / totalConv  * 100 : 0
                 const demoRate = disc  ? demo   / disc  * 100 : 0
                 const onbRate  = demo  ? onb    / demo  * 100 : 0
                 const winRate  = onb   ? closed / onb   * 100 : 0
                 const discShow = repShowRate(rep.id, 'disc')
                 const demoShow = repShowRate(rep.id, 'demo')
                 const onbShow  = repShowRate(rep.id, 'onb')
-                if (dials + conv + vm + disc + demo + onb + closed + periodMrr === 0) return null
+                if (dials + totalConv + vm + disc + demo + onb + closed + periodMrr === 0) return null
 
                 function showColor(rate: number) {
                   return rate >= 70 ? '#00E5A0' : rate >= 40 ? '#FFB800' : '#FF5468'
@@ -1589,13 +1628,13 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                       <span className="mono text-[12px] font-semibold text-ink">{dials || '—'}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="mono text-[12px] font-semibold text-ink">{conv || '—'}</span>
+                      <span className="mono text-[12px] font-semibold text-ink">{totalConv || '—'}</span>
                       {cvRate > 0 && <span className="mono text-[10px] text-ink-3 ml-1.5">{cvRate.toFixed(0)}%</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {disc > 0 ? (
                         <>
-                          <span className="mono text-[12px] font-semibold text-ink">{(conv / disc).toFixed(2)}%</span>
+                          <span className="mono text-[12px] font-semibold text-ink">{(totalConv / disc).toFixed(2)}%</span>
                         </>
                       ) : <span className="text-ink-3 text-[11px]">—</span>}
                     </td>
@@ -2040,6 +2079,9 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                     const newClientsThisWeek = clients.filter((c) =>
                       c.since_date && (c.since_date as string) >= w.startStr && (c.since_date as string) <= w.endStr
                     )
+                    const cancelledClientsThisWeek = clients.filter((c) =>
+                      c.cancel_date && (c.cancel_date as string) >= w.startStr && (c.cancel_date as string) <= w.endStr
+                    )
 
                     return (
                       <div
@@ -2072,7 +2114,7 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                             </div>
                           </div>
                         )}
-                        {newClientsThisWeek.length > 0 && hoveredWeek === w.label && (
+                        {(newClientsThisWeek.length > 0 || cancelledClientsThisWeek.length > 0) && hoveredWeek === w.label && (
                           <div
                             className="fixed text-[13px] p-2.5 rounded z-50 pointer-events-none font-semibold"
                             style={{
@@ -2085,6 +2127,11 @@ export function TeamPerformance({ reps: allReps, clients, feed, targets: _target
                             {newClientsThisWeek.map((c, idx) => (
                               <div key={idx} className="whitespace-nowrap">
                                 {c.name} ({fmtMoney(c.mrr)})
+                              </div>
+                            ))}
+                            {cancelledClientsThisWeek.map((c, idx) => (
+                              <div key={`cancelled-${idx}`} className="whitespace-nowrap" style={{ color: '#FF5468' }}>
+                                − {c.name} ({fmtMoney(c.mrr)})
                               </div>
                             ))}
                           </div>
