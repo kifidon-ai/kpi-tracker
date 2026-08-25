@@ -14,12 +14,14 @@
     "db:seed": "dotenv -e .env.local -- tsx db/seed.ts",
     "db:seed-historical": "dotenv -e .env.local -- tsx db/seed-historical.ts",
     "db:run": "dotenv -e .env.local -- tsx db/migrate-run.ts",
-    "db:migrate-tasks": "dotenv -e .env.local -- tsx db/migrate-tasks.ts"
+    "db:migrate-tasks": "dotenv -e .env.local -- tsx db/migrate-tasks.ts",
+    "db:export-csv": "dotenv -e .env.local -- tsx export-to-csv.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.0",
+    "csv-stringify": "^6.8.3",
     "drizzle-orm": "^0.45.2",
     "next": "^15.3.2",
     "postgres": "^3.4.9",

@@ -195,8 +195,7 @@ function hourlyToEntries(repId: string, rows: typeof TIMMY_HOURLY): LogEntry[] {
     for (const key of ['dials', 'conv', 'vm', 'disc'] as const) {
       const count = row[key]
       if (count > 0) {
-        const info = METRIC_INFO[key]
-        entries.push({ id: crypto.randomUUID(), rep_id: repId, metric_key: key, label: info.label, icon: info.icon, color: info.color, delta: count, logged_at: ts })
+        entries.push({ id: crypto.randomUUID(), rep_id: repId, metric_key: key, delta: count, logged_at: ts })
       }
     }
   }
@@ -204,10 +203,8 @@ function hourlyToEntries(repId: string, rows: typeof TIMMY_HOURLY): LogEntry[] {
 }
 
 function demoToEntries(repId: string, rows: { date: string; demo: number }[]): LogEntry[] {
-  const info = METRIC_INFO['demo']
   return rows.map((d) => ({
     id: crypto.randomUUID(), rep_id: repId, metric_key: 'demo',
-    label: info.label, icon: info.icon, color: info.color,
     delta: d.demo, logged_at: `${d.date}T12:00:00+00:00`,
   }))
 }
@@ -215,7 +212,6 @@ function demoToEntries(repId: string, rows: { date: string; demo: number }[]): L
 function ghostedToEntries(repId: string, timestamps: string[]): LogEntry[] {
   return timestamps.map((ts) => ({
     id: crypto.randomUUID(), rep_id: repId, metric_key: 'ghosted',
-    label: 'Cancelled / ghosted', icon: 'minus', color: '#FF5468',
     delta: 1, logged_at: ts,
   }))
 }

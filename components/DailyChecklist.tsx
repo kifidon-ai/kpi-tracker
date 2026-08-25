@@ -5,7 +5,8 @@ import type { Rep } from '@/lib/types'
 import { SectionTitle } from './ui/primitives'
 import { Avatar } from './ui/Avatar'
 import { createClient } from '@/utils/supabase/client'
-import { getDailyChecklistAction, checkDailyItemAction, uncheckDailyItemAction, resetSectionAction } from '@/app/actions'
+// Daily checklist table removed — functionality disabled
+// import { getDailyChecklistAction, checkDailyItemAction, uncheckDailyItemAction, resetSectionAction } from '@/app/actions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -237,38 +238,38 @@ export function DailyChecklist({ reps, currentRepId }: DailyChecklistProps) {
   const [dateKey, setDateKey] = useState(getTodayKeyET)
   const [checks, setChecks] = useState<Record<string, string[]>>({})
 
-  // Load from DB on mount / date change
+  // Load from DB on mount / date change (disabled - daily_checklist table removed)
   useEffect(() => {
-    getDailyChecklistAction(dateKey).then((rows) => {
-      const map: Record<string, string[]> = {}
-      for (const { item_id, rep_id } of rows) {
-        map[item_id] = [...(map[item_id] ?? []), rep_id]
-      }
-      setChecks(map)
-    })
+    // getDailyChecklistAction(dateKey).then((rows) => {
+    //   const map: Record<string, string[]> = {}
+    //   for (const { item_id, rep_id } of rows) {
+    //     map[item_id] = [...(map[item_id] ?? []), rep_id]
+    //   }
+    //   setChecks(map)
+    // })
   }, [dateKey])
 
-  // Real-time: see teammates' avatars light up instantly
-  useEffect(() => {
-    const supabase = createClient()
-    const ch = supabase
-      .channel('daily_cl_rt')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'daily_checklist' }, (p) => {
-        const { date_key, item_id, rep_id } = p.new as Record<string, string>
-        if (date_key !== dateKey) return
-        setChecks((prev) => {
-          const cur = prev[item_id] ?? []
-          return cur.includes(rep_id) ? prev : { ...prev, [item_id]: [...cur, rep_id] }
-        })
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'daily_checklist' }, (p) => {
-        const { date_key, item_id, rep_id } = p.old as Record<string, string>
-        if (date_key !== dateKey) return
-        setChecks((prev) => ({ ...prev, [item_id]: (prev[item_id] ?? []).filter((id) => id !== rep_id) }))
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
-  }, [dateKey])
+  // Real-time: see teammates' avatars light up instantly (disabled - daily_checklist table removed)
+  // useEffect(() => {
+  //   const supabase = createClient()
+  //   const ch = supabase
+  //     .channel('daily_cl_rt')
+  //     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'daily_checklist' }, (p) => {
+  //       const { date_key, item_id, rep_id } = p.new as Record<string, string>
+  //       if (date_key !== dateKey) return
+  //       setChecks((prev) => {
+  //         const cur = prev[item_id] ?? []
+  //         return cur.includes(rep_id) ? prev : { ...prev, [item_id]: [...cur, rep_id] }
+  //       })
+  //     })
+  //     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'daily_checklist' }, (p) => {
+  //       const { date_key, item_id, rep_id } = p.old as Record<string, string>
+  //       if (date_key !== dateKey) return
+  //       setChecks((prev) => ({ ...prev, [item_id]: (prev[item_id] ?? []).filter((id) => id !== rep_id) }))
+  //     })
+  //     .subscribe()
+  //   return () => { supabase.removeChannel(ch) }
+  // }, [dateKey])
 
   // Midnight rollover
   useEffect(() => {
@@ -279,29 +280,30 @@ export function DailyChecklist({ reps, currentRepId }: DailyChecklistProps) {
     return () => clearInterval(id)
   }, [dateKey])
 
-  async function toggle(itemId: string, repId: string, nowChecked: boolean, mode: ItemMode) {
-    if (mode === 'shared' && !nowChecked) {
-      const checkedBy = checks[itemId] ?? []
-      if (!checkedBy.includes(repId)) return // only the checker can uncheck
-    }
-    setChecks((prev) => {
-      const cur = prev[itemId] ?? []
-      return { ...prev, [itemId]: nowChecked ? (cur.includes(repId) ? cur : [...cur, repId]) : cur.filter((id) => id !== repId) }
-    })
-    if (nowChecked) await checkDailyItemAction(dateKey, itemId, repId)
-    else await uncheckDailyItemAction(dateKey, itemId, repId)
+  // Disabled - daily_checklist table removed
+  async function toggle(_itemId: string, _repId: string, _nowChecked: boolean, _mode: ItemMode) {
+    // if (mode === 'shared' && !nowChecked) {
+    //   const checkedBy = checks[itemId] ?? []
+    //   if (!checkedBy.includes(repId)) return // only the checker can uncheck
+    // }
+    // setChecks((prev) => {
+    //   const cur = prev[itemId] ?? []
+    //   return { ...prev, [itemId]: nowChecked ? (cur.includes(repId) ? cur : [...cur, repId]) : cur.filter((id) => id !== repId) }
+    // })
+    // if (nowChecked) await checkDailyItemAction(dateKey, itemId, repId)
+    // else await uncheckDailyItemAction(dateKey, itemId, repId)
   }
 
-  async function resetSection(itemIds: string[]) {
-    const itemIdSet = new Set(itemIds)
-    setChecks((prev) => {
-      const updated = { ...prev }
-      for (const itemId of itemIds) {
-        delete updated[itemId]
-      }
-      return updated
-    })
-    await resetSectionAction(dateKey, itemIds)
+  async function resetSection(_itemIds: string[]) {
+    // const itemIdSet = new Set(itemIds)
+    // setChecks((prev) => {
+    //   const updated = { ...prev }
+    //   for (const itemId of itemIds) {
+    //     delete updated[itemId]
+    //   }
+    //   return updated
+    // })
+    // await resetSectionAction(dateKey, itemIds)
   }
 
   const allExpected = SECTIONS.flatMap((s) => collectExpected(s.items, activeReps))

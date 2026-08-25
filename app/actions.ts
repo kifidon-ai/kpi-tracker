@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/db'
-import { activity_log_entries, closed_deals, clients, tasks, daily_checklist, calendar, targets } from '@/db/schema'
+import { activity_log_entries, closed_deals, clients, tasks, calendar, targets, metrics } from '@/db/schema'
 import { eq, and, gte, lte, desc, sql, asc, lt, ne, or, inArray, isNotNull, isNull, gt } from 'drizzle-orm'
 
 export async function getActivityCountsAction(startISO: string, endISO: string) {
@@ -30,9 +30,6 @@ export async function getActivityCountsAction(startISO: string, endISO: string) 
 export async function logActivityAction(
   repId: string,
   metricKey: string,
-  label: string,
-  icon: string,
-  color: string,
   loggedAt?: string,
 ) {
   const [entry] = await db
@@ -40,9 +37,6 @@ export async function logActivityAction(
     .values({
       rep_id: repId,
       metric_key: metricKey,
-      label,
-      icon,
-      color,
       delta: 1,
       ...(loggedAt ? { logged_at: loggedAt } : {}),
     })
@@ -223,16 +217,7 @@ export async function logClosedDealAction(data: {
   monthlyPrice: number
   closedDate: string
 }) {
-  const [deal] = await db
-    .insert(closed_deals)
-    .values({
-      rep_id: data.repId,
-      company_name: data.companyName,
-      monthly_price: data.monthlyPrice,
-      closed_date: data.closedDate,
-    })
-    .returning()
-
+  // Create client first
   const [client] = await db
     .insert(clients)
     .values({
@@ -245,15 +230,23 @@ export async function logClosedDealAction(data: {
     })
     .returning()
 
+  // Create activity log entry for the closed metric
   const [entry] = await db
     .insert(activity_log_entries)
     .values({
       rep_id: data.repId,
       metric_key: 'closed',
-      label: `Closed ${data.companyName}`,
-      icon: 'trophy',
-      color: '#00E5A0',
       delta: 1,
+    })
+    .returning()
+
+  // Create closed deal linking client and activity log
+  const [deal] = await db
+    .insert(closed_deals)
+    .values({
+      client_id: client.id,
+      activity_log_id: entry.id,
+      closed_date: data.closedDate,
     })
     .returning()
 
@@ -385,35 +378,68 @@ export async function deleteCalendarEventAction(eventId: string, repId: string, 
 
 export async function logCalendarEventAction(data: {
   repId: string
-  companyName: string
+  companyName?: string
+  clientId?: string
   activityType: string
   scheduledDate: string
   intent: string
   monthlyPrice?: number
   loggedAt?: string
 }) {
-  const priceSuffix =
-    data.activityType === 'onb' && data.monthlyPrice && data.monthlyPrice > 0
-      ? ` · $${Math.round(data.monthlyPrice)}`
-      : ''
-  const def =
-    data.activityType === 'disc' ? { label: `Discovery booked · ${data.companyName}`,  icon: 'calendar',  color: '#FFD700', metricKey: 'disc' }
-    : data.activityType === 'onb' ? { label: `Onboarding booked · ${data.companyName}${priceSuffix}`, icon: 'checklist', color: '#3DD6C3', metricKey: 'onb' }
-    : { label: `Demo booked · ${data.companyName}`,       icon: 'present',   color: '#00E5A0', metricKey: 'demo' }
+  const metricKeyMap = {
+    disc: 'disc',
+    demo: 'demo',
+    onb: 'onb',
+  }
+  const metricKey = metricKeyMap[data.activityType as keyof typeof metricKeyMap] || data.activityType
+
+  let clientId = data.clientId
+
+  // If companyName provided without clientId, try to find or create client
+  if (data.companyName && !clientId) {
+    try {
+      const existing = await db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(eq(clients.name, data.companyName))
+        .limit(1)
+
+      if (existing.length > 0) {
+        clientId = existing[0].id
+      } else {
+        // Create new client if not found
+        const [newClient] = await db
+          .insert(clients)
+          .values({
+            name: data.companyName,
+            owner_id: data.repId,
+            mrr: data.monthlyPrice ?? 0,
+            plan: 'Starter',
+            status: 'active',
+          })
+          .returning()
+        clientId = newClient.id
+      }
+    } catch {
+      // If lookup fails, we'll proceed without it
+      throw new Error('Unable to create/find client for booking')
+    }
+  }
+
+  if (!clientId) {
+    throw new Error('clientId or companyName required for calendar booking')
+  }
 
   // Calendar first so we can link the activity log via calendar_id
   const [event] = await db
     .insert(calendar)
     .values({
       rep_id:         data.repId,
-      company_name:   data.companyName,
+      client_id:      clientId,
       activity_type:  data.activityType,
       scheduled_date: data.scheduledDate,
       intent:         data.intent,
       status:         'scheduled',
-      ...(data.monthlyPrice != null && data.monthlyPrice > 0
-        ? { monthly_price: data.monthlyPrice }
-        : {}),
     })
     .returning()
 
@@ -421,10 +447,7 @@ export async function logCalendarEventAction(data: {
     .insert(activity_log_entries)
     .values({
       rep_id:      data.repId,
-      metric_key:  def.metricKey,
-      label:       def.label,
-      icon:        def.icon,
-      color:       def.color,
+      metric_key:  metricKey,
       delta:       1,
       calendar_id: event.id,
     })
@@ -479,10 +502,11 @@ export async function getCalendarEventsForDateRangeAllRepsAction(startISO: strin
 export async function getCalendarCompaniesAction() {
   try {
     const rows = await db
-      .selectDistinct({ company_name: calendar.company_name })
+      .selectDistinct({ company_name: clients.name })
       .from(calendar)
+      .innerJoin(clients, eq(calendar.client_id, clients.id))
       .where(isNull(calendar.deleted_at))
-      .orderBy(asc(calendar.company_name))
+      .orderBy(asc(clients.name))
     return rows.map((r) => r.company_name)
   } catch { return [] }
 }
@@ -492,12 +516,13 @@ export async function getPendingOnboardingsAction(startISO: string, endISO: stri
   try {
     return await db
       .select({
-        company_name:   calendar.company_name,
-        monthly_price:  calendar.monthly_price,
+        company_name:   clients.name,
+        monthly_price:  clients.mrr,
         scheduled_date: calendar.scheduled_date,
         status:         calendar.status,
       })
       .from(calendar)
+      .innerJoin(clients, eq(calendar.client_id, clients.id))
       .where(and(
         isNull(calendar.deleted_at),
         eq(calendar.activity_type, 'onb'),
@@ -516,17 +541,18 @@ export async function getOnboardingPricesAction() {
   try {
     const rows = await db
       .select({
-        company_name:  calendar.company_name,
-        monthly_price: calendar.monthly_price,
+        company_name:  clients.name,
+        monthly_price: clients.mrr,
         scheduled_date: calendar.scheduled_date,
         created_at:    calendar.created_at,
       })
       .from(calendar)
+      .innerJoin(clients, eq(calendar.client_id, clients.id))
       .where(and(
         isNull(calendar.deleted_at),
         eq(calendar.activity_type, 'onb'),
-        isNotNull(calendar.monthly_price),
-        gt(calendar.monthly_price, 0),
+        isNotNull(clients.mrr),
+        gt(clients.mrr, 0),
       ))
       .orderBy(desc(calendar.scheduled_date), desc(calendar.created_at))
 
@@ -597,25 +623,57 @@ export async function getShowRatesAction(startISO?: string, endISO?: string) {
 
 export async function addCalendarEntryOnlyAction(data: {
   repId: string
-  companyName: string
+  companyName?: string
+  clientId?: string
   activityType: string
   scheduledDate: string
   intent: string
   status?: string
-  monthlyPrice?: number
 }) {
+  let clientId = data.clientId
+
+  // If companyName provided without clientId, try to find or create client
+  if (data.companyName && !clientId) {
+    try {
+      const existing = await db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(eq(clients.name, data.companyName))
+        .limit(1)
+
+      if (existing.length > 0) {
+        clientId = existing[0].id
+      } else {
+        // Create new client if not found
+        const [newClient] = await db
+          .insert(clients)
+          .values({
+            name: data.companyName,
+            owner_id: data.repId,
+            plan: 'Starter',
+            status: 'active',
+          })
+          .returning()
+        clientId = newClient.id
+      }
+    } catch {
+      throw new Error('Unable to create/find client for calendar entry')
+    }
+  }
+
+  if (!clientId) {
+    throw new Error('clientId or companyName required for calendar entry')
+  }
+
   const [event] = await db
     .insert(calendar)
     .values({
       rep_id:         data.repId,
-      company_name:   data.companyName,
+      client_id:      clientId,
       activity_type:  data.activityType,
       scheduled_date: data.scheduledDate,
       intent:         data.intent,
       status:         data.status ?? 'scheduled',
-      ...(data.monthlyPrice != null && data.monthlyPrice > 0
-        ? { monthly_price: data.monthlyPrice }
-        : {}),
     })
     .returning()
   return { event }
@@ -649,7 +707,15 @@ export async function getAttendedConversionsAction() {
     const allDemosIncludingFuture = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'demo')))
     const allOnbIncludingFuture = await db.select().from(calendar).where(and(isNull(calendar.deleted_at), eq(calendar.activity_type, 'onb')))
 
-    const closedDeals = await db.select().from(closed_deals)
+    // Closed deals with rep and client info
+    const closedDealsData = await db
+      .select({
+        deal_id: closed_deals.id,
+        client_id: closed_deals.client_id,
+        rep_id: activity_log_entries.rep_id,
+      })
+      .from(closed_deals)
+      .innerJoin(activity_log_entries, eq(closed_deals.activity_log_id, activity_log_entries.id))
 
     const result: Record<string, {
       discBooked: number
@@ -669,7 +735,7 @@ export async function getAttendedConversionsAction() {
     allDemos.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
     attendedDemos.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
     allOnb.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
-    closedDeals.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
+    closedDealsData.forEach((d) => { if (d.rep_id) repIds.add(d.rep_id) })
 
     for (const repId of repIds) {
       const repAllDisc = allDisc.filter((d) => d.rep_id === repId)
@@ -680,30 +746,30 @@ export async function getAttendedConversionsAction() {
       const repAllOnb = allOnb.filter((d) => d.rep_id === repId)
       const repAttendedOnb = attendedOnb.filter((d) => d.rep_id === repId)
       const repAllOnbIncludingFuture = allOnbIncludingFuture.filter((d) => d.rep_id === repId)
-      const repClosed = closedDeals.filter((d) => d.rep_id === repId)
+      const repClosed = closedDealsData.filter((d) => d.rep_id === repId)
 
-      // Count attended disc that led to a demo booking anytime (including future demos)
+      // Count attended disc that led to a demo booking anytime (including future demos) — same client
       let discToDemoCount = 0
       for (const disc of repAttendedDisc) {
         const hasDemo = repAllDemosIncludingFuture.some(
-          (demo) => demo.company_name === disc.company_name && demo.scheduled_date >= disc.scheduled_date,
+          (demo) => demo.client_id === disc.client_id && demo.scheduled_date >= disc.scheduled_date,
         )
         if (hasDemo) discToDemoCount++
       }
 
-      // Count attended demo that led to an onboarding booking (same company, on/after demo)
+      // Count attended demo that led to an onboarding booking (same client, on/after demo)
       let demoToOnbCount = 0
       for (const demo of repAttendedDemos) {
         const hasOnb = repAllOnbIncludingFuture.some(
-          (onb) => onb.company_name === demo.company_name && onb.scheduled_date >= demo.scheduled_date,
+          (onb) => onb.client_id === demo.client_id && onb.scheduled_date >= demo.scheduled_date,
         )
         if (hasOnb) demoToOnbCount++
       }
 
-      // Count attended onboarding that led to a closed deal (same company)
+      // Count attended onboarding that led to a closed deal (same client)
       let onbToClosedCount = 0
       for (const onb of repAttendedOnb) {
-        const hasClosed = repClosed.some((deal) => deal.company_name === onb.company_name)
+        const hasClosed = repClosed.some((deal) => deal.client_id === onb.client_id)
         if (hasClosed) onbToClosedCount++
       }
 
@@ -747,42 +813,3 @@ export async function editCalendarEventAction(eventId: string, data: { intent?: 
   return { event }
 }
 
-export async function getDailyChecklistAction(dateKey: string) {
-  try {
-    return await db
-      .select({ item_id: daily_checklist.item_id, rep_id: daily_checklist.rep_id })
-      .from(daily_checklist)
-      .where(eq(daily_checklist.date_key, dateKey))
-  } catch {
-    return []
-  }
-}
-
-export async function checkDailyItemAction(dateKey: string, itemId: string, repId: string) {
-  await db
-    .insert(daily_checklist)
-    .values({ date_key: dateKey, item_id: itemId, rep_id: repId })
-    .onConflictDoNothing()
-  return { ok: true }
-}
-
-export async function uncheckDailyItemAction(dateKey: string, itemId: string, repId: string) {
-  await db
-    .delete(daily_checklist)
-    .where(and(
-      eq(daily_checklist.date_key, dateKey),
-      eq(daily_checklist.item_id, itemId),
-      eq(daily_checklist.rep_id, repId),
-    ))
-  return { ok: true }
-}
-
-export async function resetSectionAction(dateKey: string, itemIds: string[]) {
-  await db
-    .delete(daily_checklist)
-    .where(and(
-      eq(daily_checklist.date_key, dateKey),
-      sql`${daily_checklist.item_id} = ANY(${sql.raw(`ARRAY[${itemIds.map(id => `'${id}'`).join(',')}]`)})`,
-    ))
-  return { ok: true }
-}
