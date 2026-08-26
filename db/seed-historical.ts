@@ -188,6 +188,23 @@ const MUJEEB_GHOSTED = [
 
 type LogEntry = typeof activity_log_entries.$inferInsert
 
+const METRIC_PROPS: Record<string, { label: string; icon: string; color: string }> = {
+  dials: { label: 'Dial logged', icon: 'phone', color: '#FF4444' },
+  conv: { label: 'Conversation', icon: 'chat', color: '#FF8C00' },
+  dm_conv: { label: 'DM Conversation', icon: 'chat', color: '#FFA500' },
+  gk_conv: { label: 'GK Conversation', icon: 'chat', color: '#FF8C00' },
+  vm: { label: 'Voicemail logged', icon: 'voicemail', color: '#5A6685' },
+  disc: { label: 'Discovery booked', icon: 'calendar', color: '#FFD700' },
+  demo: { label: 'Demo booked', icon: 'present', color: '#7AA7F5' },
+  ghosted: { label: 'Ghosted', icon: 'ghost', color: '#808080' },
+  onb: { label: 'Onboarding', icon: 'checklist', color: '#3DD6C3' },
+  closed: { label: 'Closed won', icon: 'trophy', color: '#00E5A0' },
+}
+
+function getMetricProps(key: string) {
+  return METRIC_PROPS[key] || { label: key, icon: 'metric', color: '#999999' }
+}
+
 function hourlyToEntries(repId: string, rows: typeof TIMMY_HOURLY): LogEntry[] {
   const entries: LogEntry[] = []
   for (const row of rows) {
@@ -195,7 +212,8 @@ function hourlyToEntries(repId: string, rows: typeof TIMMY_HOURLY): LogEntry[] {
     for (const key of ['dials', 'conv', 'vm', 'disc'] as const) {
       const count = row[key]
       if (count > 0) {
-        entries.push({ id: crypto.randomUUID(), rep_id: repId, metric_key: key, delta: count, logged_at: ts })
+        const props = getMetricProps(key)
+        entries.push({ id: crypto.randomUUID(), rep_id: repId, metric_key: key, label: props.label, icon: props.icon, color: props.color, delta: count, logged_at: ts })
       }
     }
   }
@@ -203,15 +221,17 @@ function hourlyToEntries(repId: string, rows: typeof TIMMY_HOURLY): LogEntry[] {
 }
 
 function demoToEntries(repId: string, rows: { date: string; demo: number }[]): LogEntry[] {
+  const props = getMetricProps('demo')
   return rows.map((d) => ({
-    id: crypto.randomUUID(), rep_id: repId, metric_key: 'demo',
+    id: crypto.randomUUID(), rep_id: repId, metric_key: 'demo', label: props.label, icon: props.icon, color: props.color,
     delta: d.demo, logged_at: `${d.date}T12:00:00+00:00`,
   }))
 }
 
 function ghostedToEntries(repId: string, timestamps: string[]): LogEntry[] {
+  const props = getMetricProps('ghosted')
   return timestamps.map((ts) => ({
-    id: crypto.randomUUID(), rep_id: repId, metric_key: 'ghosted',
+    id: crypto.randomUUID(), rep_id: repId, metric_key: 'ghosted', label: props.label, icon: props.icon, color: props.color,
     delta: 1, logged_at: ts,
   }))
 }

@@ -60,13 +60,14 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
     })
   }, [reps])
 
-  const [tab, setTab] = useState<Tab>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('ss-tab')
-      if (saved === 'live' || saved === 'team' || saved === 'tasks') return saved
+  const [tab, setTab] = useState<Tab>('team')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('ss-tab')
+    if (saved === 'live' || saved === 'team' || saved === 'tasks') {
+      setTab(saved)
     }
-    return 'team'
-  })
+  }, [])
 
   function handleTabChange(t: Tab) {
     setTab(t)
