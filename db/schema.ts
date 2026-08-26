@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, date, timestamp, uuid, index, boolean } from 'drizzle-orm/pg-core'
+import { pgTable, text, varchar, integer, doublePrecision, date, timestamp, uuid, index, boolean } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 // Use snake_case field names so InferSelectModel matches existing component code
@@ -27,17 +27,13 @@ export const clients = pgTable('clients', {
   created_at:  timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 })
 
-export const metrics = pgTable('metrics', {
-  key:   text('key').primaryKey(),
-  label: text('label').notNull(),
-  icon:  text('icon').notNull(),
-  color: varchar('color', { length: 12 }).notNull(),
-})
-
 export const activity_log_entries = pgTable('activity_log_entries', {
   id:          uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   rep_id:      text('rep_id').notNull().references(() => reps.id),
-  metric_key:  text('metric_key').notNull().references(() => metrics.key),
+  metric_key:  text('metric_key').notNull(),
+  label:       text('label').notNull(),
+  icon:        text('icon').notNull(),
+  color:       varchar('color', { length: 12 }).notNull(),
   delta:       integer('delta').notNull().default(1),
   calendar_id: uuid('calendar_id').references(() => calendar.id),
   logged_at:   timestamp('logged_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
@@ -50,8 +46,7 @@ export const activity_log_entries = pgTable('activity_log_entries', {
 
 export const targets = pgTable('targets', {
   id:       uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  rep_id:   text('rep_id').notNull().references(() => reps.id),
-  period:   text('period').notNull(),
+  period:   text('period').notNull().unique(),
   dials:    integer('dials').notNull().default(0),
   dm_conv:  integer('dm_conv').notNull().default(0),
   vm:       integer('vm').notNull().default(0),
@@ -59,36 +54,43 @@ export const targets = pgTable('targets', {
   demo:     integer('demo').notNull().default(0),
   onb:      integer('onb').notNull().default(0),
   closed:   integer('closed').notNull().default(0),
-}, (t) => [
-  index('idx_targets_rep_period').on(t.rep_id, t.period),
-])
+})
+
+export const closed_deals = pgTable('closed_deals', {
+  id:            uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  rep_id:        text('rep_id').references(() => reps.id),
+  company_name:  text('company_name').notNull(),
+  monthly_price: doublePrecision('monthly_price').notNull().default(0),
+  closed_date:   date('closed_date').notNull().default(sql`CURRENT_DATE`),
+  created_at:    timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+})
 
 export const calendar = pgTable('calendar', {
   id:               uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  rep_id:           text('rep_id').notNull().references(() => reps.id),
-  client_id:        uuid('client_id').notNull().references(() => clients.id),
+  rep_id:           text('rep_id').references(() => reps.id),
+  company_name:     text('company_name').notNull(),
   activity_type:    text('activity_type').notNull(),
   scheduled_date:   date('scheduled_date').notNull(),
   intent:           text('intent').notNull().default('medium'),
   status:           text('status').notNull().default('scheduled'),
   reschedule_count: integer('reschedule_count').notNull().default(0),
+  /** Deal MRR set at onboarding booking; carried into Closed Won. */
+  monthly_price:    doublePrecision('monthly_price'),
   created_at:       timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
   deleted_at:       timestamp('deleted_at', { withTimezone: true, mode: 'string' }),
 }, (t) => [
   index('idx_calendar_rep').on(t.rep_id),
-  index('idx_calendar_client').on(t.client_id),
   index('idx_calendar_date').on(t.scheduled_date),
 ])
 
-export const closed_deals = pgTable('closed_deals', {
-  id:                 uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  client_id:          uuid('client_id').notNull().references(() => clients.id),
-  activity_log_id:    uuid('activity_log_id').notNull().references(() => activity_log_entries.id),
-  closed_date:        date('closed_date').notNull().default(sql`CURRENT_DATE`),
-  created_at:         timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+export const daily_checklist = pgTable('daily_checklist', {
+  id:         uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  date_key:   text('date_key').notNull(),
+  item_id:    text('item_id').notNull(),
+  rep_id:     text('rep_id').notNull().references(() => reps.id),
+  checked_at: timestamp('checked_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (t) => [
-  index('idx_closed_deals_client').on(t.client_id),
-  index('idx_closed_deals_activity_log').on(t.activity_log_id),
+  index('idx_daily_checklist_date').on(t.date_key),
 ])
 
 export const tasks = pgTable('tasks', {

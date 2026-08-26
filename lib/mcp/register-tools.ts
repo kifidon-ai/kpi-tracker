@@ -233,6 +233,9 @@ export function registerKpiTools(server: McpServer) {
       const { entry } = await logActivityAction(
         rep_id,
         meta.k,
+        meta.label,
+        meta.icon,
+        meta.color,
         logged_at,
       )
       return writeResult({
@@ -409,10 +412,11 @@ export function registerKpiTools(server: McpServer) {
           tool: 'create_meeting',
           args: {
             rep_id: before.rep_id,
-            company_name: 'Unknown', // client_id is available but name not fetched
+            company_name: before.company_name,
             activity_type: before.activity_type,
             scheduled_date: before.scheduled_date,
             intent: before.intent,
+            monthly_price: before.monthly_price ?? undefined,
             count_as_booked: true,
           },
         },
@@ -575,13 +579,13 @@ export function registerKpiTools(server: McpServer) {
         before,
         after: { deleted: true },
         undo:
-          deal && client && entry
+          deal && client
             ? {
                 tool: 'log_closed_deal',
                 args: {
-                  rep_id: entry.rep_id,
-                  company_name: client.name,
-                  monthly_price: client.mrr,
+                  rep_id: deal.rep_id,
+                  company_name: deal.company_name,
+                  monthly_price: deal.monthly_price,
                   closed_date: deal.closed_date,
                 },
               }

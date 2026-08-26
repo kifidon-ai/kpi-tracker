@@ -3,7 +3,7 @@
 import type { CalendarEvent } from '@/lib/types'
 
 interface CalendarDecrementPickerProps {
-  events: (CalendarEvent & { clientName?: string })[]
+  events: CalendarEvent[]
   activityType: 'disc' | 'demo' | 'onb'
   onSelect: (event: CalendarEvent) => void
   onCancel: () => void
@@ -49,7 +49,7 @@ export function CalendarDecrementPicker({ events, activityType, onSelect, onCanc
                 style={{ background: 'var(--tile-bg)', border: `1px solid ${accentColor}33` }}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-ink truncate">{ev.clientName || `Client: ${ev.client_id}`}</div>
+                  <div className="text-[13px] font-semibold text-ink truncate">{ev.company_name}</div>
                   <div className="text-[11px] text-ink-3 mt-0.5">{ev.scheduled_date}</div>
                 </div>
                 <div

@@ -175,7 +175,7 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
       [activeRep]: { ...(prev[activeRep] ?? {}), [metricKey]: ((prev[activeRep] ?? {})[metricKey] ?? 0) + 1 },
     }))
     try {
-      await logActivityAction(activeRep, def.k, loggedAt)
+      await logActivityAction(activeRep, def.k, def.label + ' logged', def.icon, def.color, loggedAt)
     } catch {
       setCountsByRep((prev) => ({
         ...prev,
@@ -451,18 +451,16 @@ export function LiveTracker({ reps, feed, targets, defaultRepId, onDealClosed }:
             )}
             {filteredFeed.map((item) => {
               const r = reps.find((x) => x.id === item.rep_id)
-              const metric = ALL_METRICS.find((m) => m.k === item.metric_key)
-              if (!metric) return null
               return (
                 <div key={item.id} className="grid items-center gap-2 py-2.5 px-0.5 border-b border-line"
                   style={{ gridTemplateColumns: '28px 22px 1fr auto' }}>
                   <div className="w-7 h-7 rounded-[7px] inline-flex items-center justify-center"
-                    style={{ background: metric.color + '22' }}>
-                    <Icon name={metric.icon} size={14} color={metric.color} />
+                    style={{ background: item.color + '22' }}>
+                    <Icon name={item.icon} size={14} color={item.color} />
                   </div>
                   <Avatar rep={r ?? null} size={20} />
                   <div className="min-w-0">
-                    <div className="text-[11.5px] font-semibold truncate">{metric.label}</div>
+                    <div className="text-[11.5px] font-semibold truncate">{item.label}</div>
                     <div className="text-[10px] text-ink-3">{r?.name.split(' ')[0]}</div>
                   </div>
                   <div className="mono text-[10px] text-ink-3">{relativeTime(item.logged_at)}</div>

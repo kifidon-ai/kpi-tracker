@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import type { Rep, Client, ActivityLogEntry, Target } from '@/lib/types'
 
 import { fmtMoney, isClientActiveAsOf } from '@/lib/helpers'
-import { ALL_METRICS } from '@/lib/constants'
 import { Icon } from './ui/Icon'
 import { LiveTracker } from './LiveTracker'
 import { TeamPerformance } from './TeamPerformance'
@@ -61,20 +60,18 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
     })
   }, [reps])
 
-  const [tab, setTab] = useState<Tab>('team')
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ss-tab')
+      if (saved === 'live' || saved === 'team' || saved === 'tasks') return saved
+    }
+    return 'team'
+  })
 
   function handleTabChange(t: Tab) {
     setTab(t)
     localStorage.setItem('ss-tab', t)
   }
-
-  // Load saved tab after hydration (avoids hydration mismatch)
-  useEffect(() => {
-    const saved = localStorage.getItem('ss-tab')
-    if (saved === 'live' || saved === 'team' || saved === 'tasks') {
-      setTab(saved)
-    }
-  }, [])
 
   const [clients, setClients] = useState<Client[]>(initialClients)
   const [feed, setFeed] = useState<ActivityLogEntry[]>(initialFeed)
@@ -98,14 +95,12 @@ export function Shell({ reps, clients: initialClients, feed: initialFeed, target
         // Notify for teammate activity only (not your own)
         if (entry.rep_id !== currentRepIdRef.current) {
           const rep = repById[entry.rep_id]
-          const metric = ALL_METRICS.find((m) => m.k === entry.metric_key)
-          const label = metric?.label || entry.metric_key
           const sound: SoundType =
             entry.metric_key === 'closed' ? 'deal' :
             entry.metric_key === 'demo' || entry.metric_key === 'disc' || entry.metric_key === 'onb' ? 'activity' :
             'task'
           notifyRef.current(
-            rep ? `${rep.name.split(' ')[0]} · ${label}` : label,
+            rep ? `${rep.name.split(' ')[0]} · ${entry.label}` : entry.label,
             undefined,
             sound,
           )

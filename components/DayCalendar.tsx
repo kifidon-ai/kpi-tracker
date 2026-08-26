@@ -18,7 +18,7 @@ import {
 } from '@/app/actions'
 
 interface DayCalendarProps {
-  events: (CalendarEvent & { clientName?: string })[]
+  events: CalendarEvent[]
   reps: Rep[]
   repId: string
   companies: string[]
@@ -82,22 +82,20 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
   const sectionTitle = isSingleDay ? "Today's meetings" : "Meetings"
   const today = dateLabel
 
-  const getClientName = (e: CalendarEvent & { clientName?: string }) => e.clientName || e.client_id || 'Unknown'
-
   const filteredAndSortedEvents = events
     .filter((e) => filterType === 'all' || e.activity_type === filterType)
     .sort((a, b) => {
       if (sortBy === 'name') {
-        return getClientName(a).localeCompare(getClientName(b))
+        return a.company_name.localeCompare(b.company_name)
       }
       if (sortBy === 'date') {
         return a.scheduled_date.localeCompare(b.scheduled_date)
-          || getClientName(a).localeCompare(getClientName(b))
+          || a.company_name.localeCompare(b.company_name)
       }
       const typeOrder = { disc: 0, demo: 1, onb: 2 }
       const aTypeOrder = typeOrder[a.activity_type as keyof typeof typeOrder] ?? 3
       const bTypeOrder = typeOrder[b.activity_type as keyof typeof typeOrder] ?? 3
-      return aTypeOrder - bTypeOrder || getClientName(a).localeCompare(getClientName(b))
+      return aTypeOrder - bTypeOrder || a.company_name.localeCompare(b.company_name)
     })
 
   // Close menu when clicking outside
@@ -332,7 +330,12 @@ export function DayCalendar({ events, reps, repId, companies, startDate, endDate
                 </div>
 
                 <div className="text-[13px] font-semibold text-ink truncate flex-1 min-w-0">
-                  {getClientName(event)}
+                  {event.company_name}
+                  {event.activity_type === 'onb' && event.monthly_price != null && event.monthly_price > 0 && (
+                    <span className="mono text-[11px] font-bold text-[#3DD6C3] ml-1.5">
+                      ${Math.round(event.monthly_price)}
+                    </span>
+                  )}
                 </div>
 
                 <div className="mono text-[10px] text-ink-3 shrink-0 whitespace-nowrap">
