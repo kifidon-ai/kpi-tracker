@@ -21,6 +21,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.0",
+    "csv-parse": "^7.0.2",
     "csv-stringify": "^6.8.3",
     "drizzle-orm": "^0.45.2",
     "next": "^15.3.2",
